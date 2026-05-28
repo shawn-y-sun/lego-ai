@@ -193,6 +193,11 @@ def ABSGR(series: pd.Series, periods: int = 1) -> pd.Series:
     """Absolute growth rate over lag periods."""
     return (series / series.shift(periods) - 1).abs()
 
+
+def ABSDF(series: pd.Series, periods: int = 1) -> pd.Series:
+    """Absolute difference over lag periods: (series - series.shift(lag)).abs()."""
+    return (series - series.shift(periods)).abs()
+
 # Rolling window transforms
 
 def ROLLAVG4(series: pd.Series, periods: int = 4) -> pd.Series:
