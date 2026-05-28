@@ -5,10 +5,11 @@
 # =============================================================================
 
 # Available transformation functions (defined in transform.py):
-# LV   - Original values     DF   - Period difference
-# GR   - Growth rate        ABSGR - Absolute growth rate
-# DF2  - 2-period diff      GR2   - 2-period growth
-# DF3  - 3-period diff      GR3   - 3-period growth
+# LV   - Original values     DF    - Period difference
+# GR   - Growth rate         ABSGR - Absolute growth rate
+# ABSDF - Absolute difference
+# DF2  - 2-period diff       GR2   - 2-period growth
+# DF3  - 3-period diff       GR3   - 3-period growth
 
 transforms:
   # Level variables (e.g., GDP, Population, Stock Prices)
