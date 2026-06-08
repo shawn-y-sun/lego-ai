@@ -952,7 +952,7 @@ class Segment:
             - ``'ols'``: Build a simple OLS regression for each transformation
               (single explored driver + intercept + optional ``forced_in``
               drivers) and rank by R². Returns columns
-              ``['variable', 'r_squared', 'r_squared_adj']``.
+              ``['variable', 'r_squared', 'coef', 'p_value']``.
         forced_in : List[Union[str, Feature]], optional
             Fixed/forced-in driver specifications included in every OLS model
             alongside the explored variable. Only used when ``method='ols'``.
@@ -972,7 +972,7 @@ class Segment:
                 DataFrame with columns ``['variable', 'corr', 'abs_corr']`` sorted
                 by absolute correlation in descending order.
             When ``method='ols'``:
-                DataFrame with columns ``['variable', 'r_squared', 'r_squared_adj']``
+                DataFrame with columns ``['variable', 'r_squared', 'coef', 'p_value']``
                 sorted by R² in descending order.
 
             When ``exp_sign_map`` is provided, only transformations whose observed
@@ -1304,14 +1304,14 @@ class Segment:
                         continue
 
                     r_squared = ols_result.rsquared
-                    r_squared_adj = ols_result.rsquared_adj
+                    coef = ols_result.params.get(col, np.nan)
+                    p_value = ols_result.pvalues.get(col, np.nan)
 
                     # Expected sign filtering: check coefficient sign of the explored variable
                     if expected_sign in (-1, 0, 1):
                         if expected_sign != 0:
                             # The explored variable is the last column in X_fit
-                            coef = ols_result.params.get(col, 0.0)
-                            coef_sign = int(np.sign(coef)) if coef != 0 else 0
+                            coef_sign = int(np.sign(coef)) if not np.isnan(coef) and coef != 0 else 0
                             if coef_sign != expected_sign:
                                 if print_pretest:
                                     excluded_sign_variants.append(col)
@@ -1320,7 +1320,8 @@ class Segment:
                     ranking_results.append({
                         'variable': col,
                         'r_squared': r_squared,
-                        'r_squared_adj': r_squared_adj
+                        'coef': coef,
+                        'p_value': p_value
                     })
                 else:
                     # --- Correlation ranking (default) ---
