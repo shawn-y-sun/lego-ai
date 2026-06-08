@@ -542,7 +542,9 @@ class Segment:
         sample: str = 'full',
         date_range: Optional[Tuple[str, str]] = None,
         outlier_idx: Optional[Sequence[Any]] = None,
-        active_idx: Optional[pd.Index] = None
+        active_idx: Optional[pd.Index] = None,
+        method: str = 'corr',
+        forced_in: Optional[List[Union[str, Feature]]] = None
     ) -> None:
         """
         Create exploratory plots comparing variables and their transformations to the target.
@@ -650,6 +652,20 @@ class Segment:
         else:
             start_date = end_date = None
 
+        use_ols = method == 'ols'
+        forced_in_df: Optional[pd.DataFrame] = None
+        if use_ols and forced_in:
+            forced_in_df = self.dm.build_features(forced_in)
+            if outlier_labels is not None:
+                forced_in_df = forced_in_df.drop(index=outlier_labels, errors='ignore')
+            if active_idx is not None:
+                forced_in_df = forced_in_df.loc[
+                    forced_in_df.index.intersection(active_idx)
+                ]
+            if date_range:
+                mask_fi = (forced_in_df.index >= start_date) & (forced_in_df.index <= end_date)
+                forced_in_df = forced_in_df[mask_fi]
+
         for var_name, df in var_dfs.items():
             df = df.copy()
             df_plot = df.copy()
@@ -728,14 +744,48 @@ class Segment:
                 else:
                     corr_text = "Corr: N/A"
 
-                # Set subplot title with correlation
-                ax.set_title(f"{col} - {corr_text}")
+                fitted = None
+                r2_text = ""
+                if use_ols:
+                    if forced_in_df is not None:
+                        fi_aligned = forced_in_df.reindex(common_idx)
+                        X_explore = pd.concat([fi_aligned, df_aligned[[col]]], axis=1)
+                    else:
+                        X_explore = df_aligned[[col]]
+
+                    _target_sentinel = '__plot_target__'
+                    target_renamed = ts_aligned.rename(_target_sentinel)
+                    combined_ols = pd.concat([X_explore, target_renamed], axis=1).dropna()
+
+                    if len(combined_ols) > X_explore.shape[1] + 1:
+                        y_fit = combined_ols[_target_sentinel].astype(float)
+                        X_fit = combined_ols.drop(columns=[_target_sentinel]).astype(float)
+                        Xc = sm.add_constant(X_fit)
+                        try:
+                            ols_res = sm.OLS(y_fit, Xc).fit()
+                            fitted = ols_res.fittedvalues
+                            r2_text = f"R²: {ols_res.rsquared:.2f}"
+                        except (np.linalg.LinAlgError, ValueError):
+                            pass
+                    if not r2_text:
+                        r2_text = "R²: N/A"
+
+                # Set subplot title
+                title_metric = r2_text if use_ols else corr_text
+                ax.set_title(f"{col} - {title_metric}")
 
                 if plot_type == 'line':
-                    # primary vs secondary y-axis
+                    # primary vs secondary y-axis for corr mode, same axis for OLS
                     plot_index = target_series_plot.index.union(df_plot.index)
                     target_plot_aligned = target_series_plot.reindex(plot_index)
-                    var_plot_aligned = df_plot[col].reindex(plot_index)
+                    
+                    if use_ols:
+                        if fitted is not None:
+                            var_plot_aligned = fitted.reindex(plot_index)
+                        else:
+                            var_plot_aligned = pd.Series(index=plot_index, dtype=float)
+                    else:
+                        var_plot_aligned = df_plot[col].reindex(plot_index)
 
                     _plot_segmented_series(
                         ax,
@@ -744,35 +794,52 @@ class Segment:
                         label=self.target,
                         linewidth=2
                     )
-                    ax2 = ax.twinx()
-                    _plot_segmented_series(
-                        ax2,
-                        var_plot_aligned,
-                        color='tab:orange',
-                        label=col,
-                        linewidth=2
-                    )
+                    
+                    if use_ols:
+                        _plot_segmented_series(
+                            ax,
+                            var_plot_aligned,
+                            color='tab:orange',
+                            label='Fitted (OLS)',
+                            linewidth=2
+                        )
+                        ax.legend(loc='best')
+                    else:
+                        ax2 = ax.twinx()
+                        _plot_segmented_series(
+                            ax2,
+                            var_plot_aligned,
+                            color='tab:orange',
+                            label=col,
+                            linewidth=2
+                        )
 
-                    # Synchronize legend entries across twin axes for consistency
-                    handles_1, labels_1 = ax.get_legend_handles_labels()
-                    handles_2, labels_2 = ax2.get_legend_handles_labels()
-                    ax.legend(handles=handles_1 + handles_2, labels=labels_1 + labels_2, loc='best')
+                        # Synchronize legend entries across twin axes for consistency
+                        handles_1, labels_1 = ax.get_legend_handles_labels()
+                        handles_2, labels_2 = ax2.get_legend_handles_labels()
+                        ax.legend(handles=handles_1 + handles_2, labels=labels_1 + labels_2, loc='best')
 
-                    # remove all axis labels
+                        # remove twin axis labels
+                        ax2.set_xlabel('')
+                        ax2.set_ylabel('')
+
+                    # remove primary axis labels
                     ax.set_xlabel('')
                     ax.set_ylabel('')
-                    ax2.set_xlabel('')
-                    ax2.set_ylabel('')
 
                 elif plot_type == 'scatter':
-                    ax.scatter(
-                        df_aligned[col],
-                        ts_aligned,
-                        color='dodgerblue'
-                    )
-                    # remove both axis labels
-                    ax.set_xlabel('')
-                    ax.set_ylabel('')
+                    if use_ols:
+                        if fitted is not None:
+                            common = fitted.index.intersection(ts_aligned.index)
+                            ax.scatter(fitted.loc[common], ts_aligned.loc[common], color='dodgerblue')
+                            ax.set_xlabel('Fitted Values')
+                            ax.set_ylabel('Target')
+                    else:
+                        ax.scatter(df_aligned[col], ts_aligned, color='dodgerblue')
+                        # remove both axis labels
+                        ax.set_xlabel('')
+                        ax.set_ylabel('')
+
                     # remove any legend
                     if ax.get_legend() is not None:
                         ax.get_legend().remove()
@@ -982,7 +1049,9 @@ class Segment:
                 plot_type=plot_type,
                 sample=sample,
                 date_range=date_range,
-                outlier_idx=outlier_labels
+                outlier_idx=outlier_labels,
+                method=method,
+                forced_in=forced_in
             )
 
         legacy_max_periods = legacy_kwargs.pop("max_periods", None)
@@ -1323,7 +1392,9 @@ class Segment:
                 sample=sample,
                 date_range=date_range,
                 outlier_idx=outlier_labels,
-                active_idx=active_regime_idx
+                active_idx=active_regime_idx,
+                method=method,
+                forced_in=forced_in
             )
 
         return result_df
