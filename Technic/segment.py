@@ -1212,21 +1212,26 @@ class Segment:
                     else:
                         X_explore = var_aligned[[col]]
 
+                    # Use a sentinel name for the target to avoid column name
+                    # collisions with feature columns (e.g. if a transform
+                    # happens to share the target's name).
+                    _target_sentinel = '__explore_target__'
+                    target_series = target_aligned.rename(_target_sentinel)
                     combined = pd.concat(
-                        [X_explore, target_aligned], axis=1
+                        [X_explore, target_series], axis=1
                     ).dropna()
 
                     if len(combined) <= X_explore.shape[1] + 1:
                         # Not enough observations for OLS
                         continue
 
-                    y_fit = combined[self.target]
-                    X_fit = combined.drop(columns=[self.target])
+                    y_fit = combined[_target_sentinel].astype(float)
+                    X_fit = combined.drop(columns=[_target_sentinel]).astype(float)
                     Xc = sm.add_constant(X_fit)
 
                     try:
                         ols_result = sm.OLS(y_fit, Xc).fit()
-                    except Exception:
+                    except (np.linalg.LinAlgError, ValueError):
                         continue
 
                     r_squared = ols_result.rsquared
