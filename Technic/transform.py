@@ -200,6 +200,16 @@ def ABSDF(series: pd.Series, periods: int = 1) -> pd.Series:
 
 # Rolling window transforms
 
+def ROLLAVG3(series: pd.Series, periods: int = 3) -> pd.Series:
+    """Rolling average over specified periods."""
+    return series.rolling(periods).mean()
+
+
+def DIV_ROLLAVG3(series: pd.Series, periods: int = 3) -> pd.Series:
+    """Difference from rolling average: series - rolling average."""
+    return series - ROLLAVG3(series, periods)
+
+
 def ROLLAVG4(series: pd.Series, periods: int = 4) -> pd.Series:
     """Rolling average over specified periods."""
     return series.rolling(periods).mean()
@@ -208,6 +218,26 @@ def ROLLAVG4(series: pd.Series, periods: int = 4) -> pd.Series:
 def DIV_ROLLAVG4(series: pd.Series, periods: int = 4) -> pd.Series:
     """Difference from rolling average: series - rolling average."""
     return series - ROLLAVG4(series, periods)
+
+
+def ROLLAVG6(series: pd.Series, periods: int = 6) -> pd.Series:
+    """Rolling average over specified periods."""
+    return series.rolling(periods).mean()
+
+
+def DIV_ROLLAVG6(series: pd.Series, periods: int = 6) -> pd.Series:
+    """Difference from rolling average: series - rolling average."""
+    return series - ROLLAVG6(series, periods)
+
+
+def ROLLAVG12(series: pd.Series, periods: int = 12) -> pd.Series:
+    """Rolling average over specified periods."""
+    return series.rolling(periods).mean()
+
+
+def DIV_ROLLAVG12(series: pd.Series, periods: int = 12) -> pd.Series:
+    """Difference from rolling average: series - rolling average."""
+    return series - ROLLAVG12(series, periods)
 
 # Alias functions for common lags (no need to add to type_tsfm.yaml)
 
