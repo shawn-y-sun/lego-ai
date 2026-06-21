@@ -519,8 +519,28 @@ def ppnr_ols_testset_func(mdl: 'ModelBase') -> Dict[str, ModelTestBase]:
                         if hasattr(spec_obj, 'feature') and getattr(spec_obj.feature, 'var', None) in qtr_only_vars:
                             continue
                     else:
-                        # Fallback for interpolated vars
-                        if any(q in col for q in qtr_only_vars):
+                        # Fallback for derived/transformed variables (e.g., from apply_to_all)
+                        # We find all base MEVs (both monthly and quarterly) that match as a word inside `col`.
+                        # The matched MEV with the longest name is assumed to be the true parent variable.
+                        import re
+                        mth_avail_vars = set(mdl.dm.model_mev_mth_avail) if hasattr(mdl.dm, 'model_mev_mth_avail') else set()
+                        
+                        best_match = ""
+                        is_qtr = False
+                        
+                        for q in qtr_only_vars:
+                            if re.search(rf'(?:^|[^a-zA-Z0-9]){re.escape(q)}(?:[^a-zA-Z0-9]|$)', col):
+                                if len(q) > len(best_match):
+                                    best_match = q
+                                    is_qtr = True
+                                    
+                        for m in mth_avail_vars:
+                            if re.search(rf'(?:^|[^a-zA-Z0-9]){re.escape(m)}(?:[^a-zA-Z0-9]|$)', col):
+                                if len(m) > len(best_match):
+                                    best_match = m
+                                    is_qtr = False
+                                    
+                        if is_qtr:
                             continue
                             
                     cols_to_keep.append(col)
