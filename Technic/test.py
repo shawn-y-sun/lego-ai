@@ -2254,7 +2254,7 @@ class CointTest(ModelTestBase):
         return self.filter_mode_descs[self.filter_mode]
 
     @property
-    def test_result(self) -> Dict[str, Any]:
+    def test_result(self) -> pd.DataFrame:
         """
         Test stationarity of X variables and residuals.
 
@@ -2270,10 +2270,9 @@ class CointTest(ModelTestBase):
               - 'Passed': True if meets expectation, False otherwise
 
         ------------------------
-        Returns a dictionary with:
-        - 'Level Stationarity (Original)': DataFrame with Level stationarity tests
-        - 'First Difference Stationarity': DataFrame with First Difference tests
-        - 'Engle-Granger Test': Summary of Engle-Granger cointegration test
+        Returns a single unified DataFrame containing the level tests,
+        the first-difference tests for each variable, and the final Engle-Granger
+        cointegration test result.
         """
         records = []
         level_records_dict = {}
@@ -2281,133 +2280,51 @@ class CointTest(ModelTestBase):
         
         # Test each X variable (expect non-stationary)
         for col in self.X_vars.columns:
-            # Ensure numeric dtype to prevent unit-root tests from failing when
-            # a column mixes ints and floats.
             series = pd.to_numeric(self.X_vars[col], errors='coerce').dropna().astype(float)
-            if len(series) < 10:  # Skip series that are too short
-                continue
+            if len(series) >= 10:
+                record = {
+                    'Variable': col,
+                    'Type': 'X Variable (Level)',
+                    'Expected': 'Non-stationary'
+                }
                 
-            record = {
-                'Type': 'X Variable',
-                'Expected': 'Non-stationary'
-            }
-            
-            # Individual test results
-            test_results = {}
-            for test_name, test_func in self.test_dict.items():
-                if test_name not in self.thresholds:
-                    test_results[test_name] = False
-                    continue
-                    
-                try:
-                    stat, pvalue = test_func(series)
-                    alpha, direction = self.thresholds[test_name]
-                    
-                    # For stationarity tests: 
-                    # - Tests like ADF/PP have null hypothesis of unit root (non-stationary)
-                    #   So p > alpha means non-stationary (null not rejected)
-                    # - Tests like KPSS have null hypothesis of stationarity
-                    #   So p > alpha means stationary (null not rejected)
-                    
-                    if direction == '<':
-                        # Null: non-stationary, reject null if p < alpha (stationary)
-                        test_indicates_stationary = pvalue < alpha
-                    else:
-                        # Null: stationary, reject null if p < alpha (non-stationary)
-                        test_indicates_stationary = pvalue > alpha
-                    
-                    # For X variables, we expect non-stationary, so pass if test indicates non-stationary
-                    test_results[test_name] = not test_indicates_stationary
-                    
-                except Exception:
-                    test_results[test_name] = False
-                    continue
-            
-            # Add individual test results to record
-            for test_name in test_names:
-                record[test_name] = test_results.get(test_name, False)
-            
-            # Determine overall result based on filter_mode
-            passed_count = sum(test_results.values())
-            total_count = len([v for v in test_results.values() if v is not None])
-            
-            if self.filter_mode == 'strict':
-                is_nonstationary = passed_count == total_count and total_count > 0
-            else:  # moderate
-                is_nonstationary = passed_count > (total_count / 2) if total_count > 0 else False
+                test_results = {}
+                for test_name, test_func in self.test_dict.items():
+                    if test_name not in self.thresholds:
+                        test_results[test_name] = False
+                        continue
+                        
+                    try:
+                        stat, pvalue = test_func(series)
+                        alpha, direction = self.thresholds[test_name]
+                        
+                        if direction == '<':
+                            test_indicates_stationary = pvalue < alpha
+                        else:
+                            test_indicates_stationary = pvalue > alpha
+                        
+                        test_results[test_name] = not test_indicates_stationary
+                    except Exception:
+                        test_results[test_name] = False
                 
-            result_str = 'Non-stationary' if is_nonstationary else 'Stationary'
-            expected_result = True if is_nonstationary else False  # Expect non-stationary for X
-            
-            record['Result'] = result_str
-            record['Passed'] = expected_result
-            records.append(record)
-            level_records_dict[col] = record
+                for test_name in test_names:
+                    record[test_name] = test_results.get(test_name, False)
+                
+                passed_count = sum(test_results.values())
+                total_count = len([v for v in test_results.values() if v is not None])
+                
+                if self.filter_mode == 'strict':
+                    is_nonstationary = passed_count == total_count and total_count > 0
+                else:
+                    is_nonstationary = passed_count > (total_count / 2) if total_count > 0 else False
+                    
+                record['Result'] = 'Non-stationary' if is_nonstationary else 'Stationary'
+                record['Passed'] = is_nonstationary
+                records.append(record)
+                level_records_dict[col] = record
         
-        # Test residuals (expect stationary)
-        # Standardize residual dtype for unit-root diagnostics.
-        resid_series = pd.to_numeric(self.resids, errors='coerce').dropna().astype(float)
-        if len(resid_series) >= 10:
-            record = {
-                'Type': 'Residuals',
-                'Expected': 'Stationary'
-            }
-            
-            # Individual test results
-            test_results = {}
-            for test_name, test_func in self.test_dict.items():
-                if test_name not in self.thresholds:
-                    test_results[test_name] = False
-                    continue
-                    
-                try:
-                    stat, pvalue = test_func(resid_series)
-                    alpha, direction = self.thresholds[test_name]
-                    
-                    if direction == '<':
-                        # Null: non-stationary, reject null if p < alpha (stationary)
-                        test_indicates_stationary = pvalue < alpha
-                    else:
-                        # Null: stationary, reject null if p < alpha (non-stationary)
-                        test_indicates_stationary = pvalue > alpha
-                    
-                    # For residuals, we expect stationary, so pass if test indicates stationary
-                    test_results[test_name] = test_indicates_stationary
-                    
-                except Exception:
-                    test_results[test_name] = False
-                    continue
-            
-            # Add individual test results to record
-            for test_name in test_names:
-                record[test_name] = test_results.get(test_name, False)
-            
-            # Determine overall result based on filter_mode
-            passed_count = sum(test_results.values())
-            total_count = len([v for v in test_results.values() if v is not None])
-            
-            if self.filter_mode == 'strict':
-                is_stationary = passed_count == total_count and total_count > 0
-            else:  # moderate
-                is_stationary = passed_count > (total_count / 2) if total_count > 0 else False
-                
-            result_str = 'Stationary' if is_stationary else 'Non-stationary'
-            expected_result = True if is_stationary else False  # Expect stationary for residuals
-            
-            record['Result'] = result_str
-            record['Passed'] = expected_result
-            records.append(record)
-        
-        # Create index
-        var_names = list(self.X_vars.columns) + ['Residuals']
-        df = pd.DataFrame(records, index=var_names[:len(records)])
-        df.index.name = 'Variable'
-
         # Step 3: Test First Difference Stationarity for X variables
-        i1_records = []
         x_coint_vars = []
-        valid_cols = []
-        
         for col in self.X_vars.columns:
             series = pd.to_numeric(self.X_vars[col], errors='coerce').dropna().astype(float)
             if len(series) < 10:
@@ -2417,9 +2334,9 @@ class CointTest(ModelTestBase):
             if len(diff_series) < 10:
                 continue
             
-            valid_cols.append(col)
             record = {
-                'Type': 'First Difference',
+                'Variable': f"{col} (Diff)",
+                'Type': 'X Variable (Diff)',
                 'Expected': 'Stationary'
             }
             
@@ -2506,9 +2423,14 @@ class CointTest(ModelTestBase):
             
         if df.empty:
             return self._apply_force_filter_pass(False)
+            
+        # Only check the original level variables to preserve original filter logic
+        level_df = df[df['Type'].isin(['X Variable (Level)', 'X Variable', 'Residuals'])]
+        if level_df.empty:
+            return self._apply_force_filter_pass(False)
 
         # All variables must pass their expectations (logic already handled in test_result)
-        return self._apply_force_filter_pass(df['Passed'].all())
+        return self._apply_force_filter_pass(level_df['Passed'].all())
 
 class MultiFullStationarityTest(ModelTestBase):
     """
