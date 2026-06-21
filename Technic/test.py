@@ -2268,14 +2268,8 @@ class CointTest(ModelTestBase):
               - Individual test columns (e.g., 'ADF', 'PP'): True if test passed expectation
               - 'Result': 'Non-stationary'/'Stationary' based on filter_mode aggregation
               - 'Passed': True if meets expectation, False otherwise
-
-        ------------------------
-        Returns a single unified DataFrame containing the level tests,
-        the first-difference tests for each variable, and the final Engle-Granger
-        cointegration test result.
         """
         records = []
-        level_records_dict = {}
         test_names = list(self.test_dict.keys())
         
         # Test each X variable (expect non-stationary)
@@ -2283,8 +2277,7 @@ class CointTest(ModelTestBase):
             series = pd.to_numeric(self.X_vars[col], errors='coerce').dropna().astype(float)
             if len(series) >= 10:
                 record = {
-                    'Variable': col,
-                    'Type': 'X Variable (Level)',
+                    'Type': 'X Variable',
                     'Expected': 'Non-stationary'
                 }
                 
@@ -2321,61 +2314,11 @@ class CointTest(ModelTestBase):
                 record['Result'] = 'Non-stationary' if is_nonstationary else 'Stationary'
                 record['Passed'] = is_nonstationary
                 records.append(record)
-                level_records_dict[col] = record
         
-        # Step 3: Test First Difference Stationarity for X variables
-        x_coint_vars = []
-        for col in self.X_vars.columns:
-            series = pd.to_numeric(self.X_vars[col], errors='coerce').dropna().astype(float)
-            if len(series) < 10:
-                continue
-                
-            diff_series = series.diff().dropna()
-            if len(diff_series) < 10:
-                continue
-            
-            record = {
-                'Variable': f"{col} (Diff)",
-                'Type': 'X Variable (Diff)',
-                'Expected': 'Stationary'
-            }
-            
-            test_results = {}
-            for test_name, test_func in self.test_dict.items():
-                if test_name not in self.thresholds:
-                    test_results[test_name] = False
-                    continue
-                    
-                try:
-                    stat, pvalue = test_func(diff_series)
-                    alpha, direction = self.thresholds[test_name]
-                    
-                    if direction == '<':
-                        test_indicates_stationary = pvalue < alpha
-                    else:
-                        test_indicates_stationary = pvalue > alpha
-                        
-                    test_results[test_name] = test_indicates_stationary
-                except Exception:
-                    test_results[test_name] = False
-                    
-            for test_name in test_names:
-                record[test_name] = test_results.get(test_name, False)
-                
-            passed = any(test_results.values())
-            record['Passed'] = passed
-            record['Result'] = 'Stationary' if passed else 'Non-stationary'
-            records.append(record)
-            
-            level_passed = level_records_dict[col]['Passed'] if col in level_records_dict else False
-            if passed and level_passed:
-                x_coint_vars.append(col)
-
         # Test residuals (expect stationary)
         resid_series = pd.to_numeric(self.resids, errors='coerce').dropna().astype(float)
         if len(resid_series) >= 10:
             record = {
-                'Variable': 'Residuals',
                 'Type': 'Residuals',
                 'Expected': 'Stationary'
             }
@@ -2414,11 +2357,94 @@ class CointTest(ModelTestBase):
             record['Passed'] = is_stationary
             records.append(record)
 
+        var_names = list(self.X_vars.columns) + ['Residuals']
+        df = pd.DataFrame(records, index=var_names[:len(records)])
+        df.index.name = 'Variable'
+        return df
+
+    @property
+    def test_filter(self) -> bool:
+        """
+        Return True if all X variables are non-stationary AND residuals are stationary.
+        """
+        results = self.test_result
+        if results.empty:
+            return self._apply_force_filter_pass(False)
+
+        return self._apply_force_filter_pass(results['Passed'].all())
+
+    @property
+    def test_result_addition(self):
+        """
+        Computes the strictly rigorous Engle-Granger Cointegration pre-tests and
+        the Engle-Granger test itself, returning an object that nicely displays
+        the full details independently.
+        """
+        level_df = self.test_result
+        test_names = list(self.test_dict.keys())
+        
+        # Step 3: Test First Difference Stationarity for X variables
+        i1_records = []
+        x_coint_vars = []
+        valid_cols = []
+        
+        for col in self.X_vars.columns:
+            series = pd.to_numeric(self.X_vars[col], errors='coerce').dropna().astype(float)
+            if len(series) < 10:
+                continue
+                
+            diff_series = series.diff().dropna()
+            if len(diff_series) < 10:
+                continue
+            
+            valid_cols.append(col)
+            record = {
+                'Type': 'X Variable (Diff)',
+                'Expected': 'Stationary'
+            }
+            
+            test_results = {}
+            for test_name, test_func in self.test_dict.items():
+                if test_name not in self.thresholds:
+                    test_results[test_name] = False
+                    continue
+                    
+                try:
+                    stat, pvalue = test_func(diff_series)
+                    alpha, direction = self.thresholds[test_name]
+                    
+                    if direction == '<':
+                        test_indicates_stationary = pvalue < alpha
+                    else:
+                        test_indicates_stationary = pvalue > alpha
+                        
+                    test_results[test_name] = test_indicates_stationary
+                except Exception:
+                    test_results[test_name] = False
+                    
+            for test_name in test_names:
+                record[test_name] = test_results.get(test_name, False)
+                
+            passed = any(test_results.values())
+            record['Passed'] = passed
+            record['Result'] = 'Stationary' if passed else 'Non-stationary'
+            i1_records.append(record)
+            
+            level_passed = False
+            if col in level_df.index:
+                level_passed = level_df.loc[col, 'Passed']
+                
+            if passed and level_passed:
+                x_coint_vars.append(col)
+
+        i1_df = pd.DataFrame(i1_records, index=valid_cols)
+        i1_df.index.name = 'Variable'
+
         # Step 4: Engle-Granger Cointegration Test
+        eg_summary = None
         if self.y is not None and x_coint_vars:
             try:
                 from arch.unitroot.cointegration import engle_granger
-                
                 y_series = pd.to_numeric(self.y, errors='coerce').dropna().astype(float)
                 x_coint_df = self.X_vars[x_coint_vars].copy()
                 
@@ -2428,57 +2454,43 @@ class CointTest(ModelTestBase):
                     x_aligned = x_coint_df.loc[common_idx]
                     
                     eg_test = engle_granger(y_aligned, x_aligned, trend='c', method='bic')
-                    
-                    passed = eg_test.pvalue < 0.05
-                    record = {
-                        'Variable': 'Y-X Cointegration',
-                        'Type': 'Engle-Granger',
-                        'Expected': 'Cointegrated',
-                        'Result': 'Cointegrated' if passed else 'Not cointegrated',
-                        'Passed': passed
-                    }
-                    if len(test_names) > 0:
-                        record[test_names[0]] = f"p={eg_test.pvalue:.4f}"
-                    records.append(record)
+                    eg_summary = eg_test.summary()
+                else:
+                    eg_summary = "Insufficient aligned data points."
             except Exception as e:
-                records.append({
-                    'Variable': 'Y-X Cointegration',
-                    'Type': 'Engle-Granger',
-                    'Expected': 'Cointegrated',
-                    'Result': f"Error: {str(e)[:20]}",
-                    'Passed': False
-                })
-
-        df = pd.DataFrame(records)
-        if not df.empty and 'Variable' in df.columns:
-            df.set_index('Variable', inplace=True)
-            
-        return df
-
-    @property
-    def test_filter(self) -> bool:
-        """
-        Return True if all X variables are non-stationary AND residuals are stationary.
-        
-        The filter_mode logic is already incorporated in the test_result calculation,
-        so we just need to check if all variables passed their expectations.
-        """
-        results = self.test_result
-        if isinstance(results, dict) and 'Level Stationarity (Original)' in results:
-            df = results['Level Stationarity (Original)']
+                eg_summary = f"Engle-Granger test failed: {str(e)}"
+        elif self.y is None:
+            eg_summary = "Target variable (y) not provided."
         else:
-            df = results
-            
-        if df.empty:
-            return self._apply_force_filter_pass(False)
-            
-        # Only check the original level variables to preserve original filter logic
-        level_df = df[df['Type'].isin(['X Variable (Level)', 'X Variable', 'Residuals'])]
-        if level_df.empty:
-            return self._apply_force_filter_pass(False)
+            eg_summary = "No I(1) X variables found for cointegration test."
 
-        # All variables must pass their expectations (logic already handled in test_result)
-        return self._apply_force_filter_pass(level_df['Passed'].all())
+        class CointAdditionalResults:
+            def __init__(self, diff_df, eg_summary):
+                self.diff_df = diff_df
+                self.eg_summary = eg_summary
+                
+            def __repr__(self):
+                parts = ["=== First Difference Stationarity (I(1) Check) ==="]
+                parts.append(repr(self.diff_df))
+                parts.append("\n=== Engle-Granger Cointegration Test ===")
+                parts.append(str(self.eg_summary))
+                return "\n".join(parts)
+                
+            def _repr_html_(self):
+                parts = ["<h3>First Difference Stationarity (I(1) Check)</h3>"]
+                if hasattr(self.diff_df, '_repr_html_'):
+                    parts.append(self.diff_df._repr_html_())
+                else:
+                    parts.append(self.diff_df.to_html())
+                    
+                parts.append("<h3>Engle-Granger Cointegration Test</h3>")
+                if hasattr(self.eg_summary, 'as_html'):
+                    parts.append(self.eg_summary.as_html())
+                else:
+                    parts.append(f"<pre>{self.eg_summary}</pre>")
+                return "\n".join(parts)
+                
+        return CointAdditionalResults(i1_df, eg_summary)
 
 class MultiFullStationarityTest(ModelTestBase):
     """
