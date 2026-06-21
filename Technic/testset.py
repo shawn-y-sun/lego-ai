@@ -500,8 +500,36 @@ def ppnr_ols_testset_func(mdl: 'ModelBase') -> Dict[str, ModelTestBase]:
             available_vars = [var for var in stationarity_vars if var in mdl.X.columns]
             if available_vars:
                 X_vars_df = mdl.X[available_vars].copy()
+                
+                # Step 2: Filter X_vars to exclude interpolated variables
+                # Constant, dummy, and regime variables are typically filtered out by spec_map['StationarityTest']
+                qtr_only_vars = set(mdl.dm.model_mev_qtr_only) if hasattr(mdl.dm, 'model_mev_qtr_only') else set()
+                cols_to_keep = []
+                for col in available_vars:
+                    # Find corresponding spec to check if it's an interpolated variable
+                    spec_obj = next((s for s in mdl.specs if str(s) == col), None)
+                    
+                    if spec_obj is not None:
+                        # Find base variable
+                        base_var = getattr(spec_obj, 'var', str(spec_obj) if isinstance(spec_obj, str) else None)
+                        if base_var in qtr_only_vars:
+                            continue
+                            
+                        # Also handle if it's a TSFM that wraps a variable
+                        if hasattr(spec_obj, 'feature') and getattr(spec_obj.feature, 'var', None) in qtr_only_vars:
+                            continue
+                    else:
+                        # Fallback for interpolated vars
+                        if any(q in col for q in qtr_only_vars):
+                            continue
+                            
+                    cols_to_keep.append(col)
+                    
+                X_filtered = X_vars_df[cols_to_keep].copy()
+
                 tests['Y–X Cointegration'] = CointTest(
-                    X_vars=X_vars_df,
+                    y=mdl.y.copy(),
+                    X_vars=X_filtered,
                     resids=mdl.resid.copy(),
                     filter_mode='moderate'
                 )

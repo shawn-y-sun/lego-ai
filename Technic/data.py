@@ -627,6 +627,25 @@ class DataManager:
             
         return self._scen_mevs_cache
 
+    @property
+    def model_mev_mth_avail(self) -> List[str]:
+        """
+        Get all MEV codes that are available in the monthly MEV data.
+        """
+        if self._mev_loader.model_mev_mth.empty:
+            return []
+        return list(self._mev_loader.model_mev_mth.columns)
+
+    @property
+    def model_mev_qtr_only(self) -> List[str]:
+        """
+        Get all MEV codes that are only available in the quarterly MEV data
+        (i.e., not in the monthly MEV data).
+        """
+        qtr_cols = set(self._mev_loader.model_mev_qtr.columns)
+        mth_cols = set(self._mev_loader.model_mev_mth.columns) if not self._mev_loader.model_mev_mth.empty else set()
+        return list(qtr_cols - mth_cols)
+
      # Modeling in‑sample/out‑of‑sample splits
     @property
     def internal_in(self) -> pd.DataFrame:
