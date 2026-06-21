@@ -2362,21 +2362,59 @@ class CointTest(ModelTestBase):
             for test_name in test_names:
                 record[test_name] = test_results.get(test_name, False)
                 
-            # Pass if at least one test indicates stationary
             passed = any(test_results.values())
             record['Passed'] = passed
             record['Result'] = 'Stationary' if passed else 'Non-stationary'
-            i1_records.append(record)
+            records.append(record)
             
             level_passed = level_records_dict[col]['Passed'] if col in level_records_dict else False
             if passed and level_passed:
                 x_coint_vars.append(col)
+
+        # Test residuals (expect stationary)
+        resid_series = pd.to_numeric(self.resids, errors='coerce').dropna().astype(float)
+        if len(resid_series) >= 10:
+            record = {
+                'Variable': 'Residuals',
+                'Type': 'Residuals',
+                'Expected': 'Stationary'
+            }
+            
+            test_results = {}
+            for test_name, test_func in self.test_dict.items():
+                if test_name not in self.thresholds:
+                    test_results[test_name] = False
+                    continue
+                    
+                try:
+                    stat, pvalue = test_func(resid_series)
+                    alpha, direction = self.thresholds[test_name]
+                    
+                    if direction == '<':
+                        test_indicates_stationary = pvalue < alpha
+                    else:
+                        test_indicates_stationary = pvalue > alpha
+                    
+                    test_results[test_name] = test_indicates_stationary
+                except Exception:
+                    test_results[test_name] = False
+            
+            for test_name in test_names:
+                record[test_name] = test_results.get(test_name, False)
+            
+            passed_count = sum(test_results.values())
+            total_count = len([v for v in test_results.values() if v is not None])
+            
+            if self.filter_mode == 'strict':
+                is_stationary = passed_count == total_count and total_count > 0
+            else:
+                is_stationary = passed_count > (total_count / 2) if total_count > 0 else False
                 
-        i1_df = pd.DataFrame(i1_records, index=valid_cols)
-        i1_df.index.name = 'Variable'
+            record['Result'] = 'Stationary' if is_stationary else 'Non-stationary'
+            record['Passed'] = is_stationary
+            records.append(record)
 
         # Step 4: Engle-Granger Cointegration Test
-        eg_summary = None
         if self.y is not None and x_coint_vars:
             try:
                 from arch.unitroot.cointegration import engle_granger
@@ -2384,28 +2422,38 @@ class CointTest(ModelTestBase):
                 y_series = pd.to_numeric(self.y, errors='coerce').dropna().astype(float)
                 x_coint_df = self.X_vars[x_coint_vars].copy()
                 
-                # Align Y and X
                 common_idx = y_series.index.intersection(x_coint_df.index)
-                y_aligned = y_series.loc[common_idx]
-                x_aligned = x_coint_df.loc[common_idx]
-                
                 if len(common_idx) >= 10:
+                    y_aligned = y_series.loc[common_idx]
+                    x_aligned = x_coint_df.loc[common_idx]
+                    
                     eg_test = engle_granger(y_aligned, x_aligned, trend='c', method='bic')
-                    eg_summary = eg_test.summary()
-                else:
-                    eg_summary = "Insufficient aligned data points."
+                    
+                    passed = eg_test.pvalue < 0.05
+                    record = {
+                        'Variable': 'Y-X Cointegration',
+                        'Type': 'Engle-Granger',
+                        'Expected': 'Cointegrated',
+                        'Result': 'Cointegrated' if passed else 'Not cointegrated',
+                        'Passed': passed
+                    }
+                    if len(test_names) > 0:
+                        record[test_names[0]] = f"p={eg_test.pvalue:.4f}"
+                    records.append(record)
             except Exception as e:
-                eg_summary = f"Engle-Granger test failed: {str(e)}"
-        elif self.y is None:
-            eg_summary = "Target variable (y) not provided."
-        else:
-            eg_summary = "No I(1) X variables found for cointegration test."
+                records.append({
+                    'Variable': 'Y-X Cointegration',
+                    'Type': 'Engle-Granger',
+                    'Expected': 'Cointegrated',
+                    'Result': f"Error: {str(e)[:20]}",
+                    'Passed': False
+                })
 
-        return {
-            'Level Stationarity (Original)': df,
-            'First Difference Stationarity': i1_df,
-            'Engle-Granger Test': eg_summary
-        }
+        df = pd.DataFrame(records)
+        if not df.empty and 'Variable' in df.columns:
+            df.set_index('Variable', inplace=True)
+            
+        return df
 
     @property
     def test_filter(self) -> bool:
