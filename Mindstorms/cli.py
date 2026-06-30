@@ -17,6 +17,7 @@ from .runs import (
     normalize_outputs_for_protocol,
     read_asset,
     read_manifest,
+    search_config_from_inputs,
     write_candidate_model_assets,
     write_manifest,
 )
@@ -202,6 +203,7 @@ def cmd_demo_search(args: argparse.Namespace) -> int:
         "max_lag": args.max_lag,
         "periods": args.periods,
     }
+    inputs["search_config"] = search_config_from_inputs(inputs)
     manifest = base_manifest(
         run_id=run_id,
         workflow="demo_housing_search",
@@ -250,6 +252,7 @@ def cmd_demo_search_smoke(args: argparse.Namespace) -> int:
         "pilot_smoke": True,
         "filter_profile": "relaxed_demo_smoke",
     }
+    inputs["search_config"] = search_config_from_inputs(inputs)
     manifest = base_manifest(
         run_id=run_id,
         workflow="demo_housing_search_smoke",

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -12,6 +14,7 @@ from .protocol import ASSETS_ROOT, PROTOCOL_VERSION, AssetRef, asset_ref_to_path
 RUNS_ROOT = Path(".lego") / "runs"
 LATEST_FILE = RUNS_ROOT / "latest"
 _SAFE_ASSET_SEGMENT_RE = re.compile(r"[^A-Za-z0-9_.-]+")
+_LAST_MANIFEST_MTIME_NS = 0
 
 
 def utc_timestamp() -> str:
@@ -36,11 +39,16 @@ def _asset_index_path() -> Path:
 
 
 def write_manifest(manifest: Dict[str, Any]) -> Path:
+    global _LAST_MANIFEST_MTIME_NS
+
     run_id = manifest["run_id"]
     run_dir = _run_dir(run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
     path = _manifest_path(run_id)
     path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+    mtime_ns = max(time.time_ns(), _LAST_MANIFEST_MTIME_NS + 1)
+    _LAST_MANIFEST_MTIME_NS = mtime_ns
+    os.utime(path, ns=(mtime_ns, mtime_ns))
     LATEST_FILE.write_text(run_id, encoding="utf-8")
     return path
 
@@ -159,6 +167,29 @@ def read_asset(asset_id: str) -> Dict[str, Any]:
             "asset_path": str(asset_path),
         }
     raise FileNotFoundError(f"No asset found for '{asset_id}'.")
+
+
+def search_config_from_inputs(inputs: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "engine": {
+            "name": "technic_model_search",
+            "version": "legacy_adapter",
+        },
+        "driver_pool": list(inputs.get("desired_pool") or []),
+        "forced_in": list(inputs.get("forced_in") or []),
+        "constraints": {
+            "top_n": inputs.get("top_n"),
+            "max_var_num": inputs.get("max_var_num"),
+            "max_lag": inputs.get("max_lag"),
+            "periods": inputs.get("periods"),
+        },
+        "filter_profile": inputs.get("filter_profile"),
+        "runtime_budget": {
+            "max_candidates": inputs.get("max_candidates"),
+            "max_seconds": inputs.get("max_seconds"),
+        },
+        "pilot_smoke": bool(inputs.get("pilot_smoke", False)),
+    }
 
 
 def normalize_outputs_for_protocol(outputs: Dict[str, Any]) -> Dict[str, Any]:

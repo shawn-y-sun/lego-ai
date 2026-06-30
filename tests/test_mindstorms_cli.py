@@ -75,6 +75,26 @@ def test_cli_demo_search_smoke_parser_path(monkeypatch, isolated_runs_root, caps
     assert payload["run"]["workflow"] == "demo_housing_search_smoke"
     assert payload["run"]["workflow_id"] == "demo_housing_search_smoke"
     assert payload["run"]["inputs"]["filter_profile"] == "relaxed_demo_smoke"
+    assert payload["run"]["inputs"]["search_config"] == {
+        "engine": {
+            "name": "technic_model_search",
+            "version": "legacy_adapter",
+        },
+        "driver_pool": ["USMORT30Y"],
+        "forced_in": [],
+        "constraints": {
+            "top_n": 1,
+            "max_var_num": 1,
+            "max_lag": 0,
+            "periods": [1],
+        },
+        "filter_profile": "relaxed_demo_smoke",
+        "runtime_budget": {
+            "max_candidates": None,
+            "max_seconds": None,
+        },
+        "pilot_smoke": True,
+    }
     assert payload["run"]["outputs"]["selected_count"] == 1
     assert payload["run"]["outputs"]["summary"]["selected_count"] == 1
     assert payload["run"]["outputs"]["assets"] == [
@@ -86,6 +106,87 @@ def test_cli_demo_search_smoke_parser_path(monkeypatch, isolated_runs_root, caps
         }
     ]
     assert payload["run"]["outputs"]["diagnostics"] == {}
+    assert all(asset["type"] != "search_pool" for asset in payload["run"]["outputs"]["assets"])
+
+
+def test_cli_demo_search_parser_maps_legacy_inputs_to_search_config(monkeypatch, isolated_runs_root, capsys):
+    def fake_run_search(**kwargs):
+        return {
+            "segment_id": "home_price_GR1",
+            "target": "home_price_GR1",
+            "search_id": kwargs["search_id"],
+            "selected_models": [],
+            "selected_count": 0,
+            "zero_selected_is_valid": True,
+        }
+
+    monkeypatch.setattr(cli._demo_housing(), "run_search", fake_run_search)
+
+    assert (
+        cli.main(
+            [
+                "demo",
+                "search",
+                "--json",
+                "--pool",
+                "USMORT30Y",
+                "USPRIME",
+                "--top-n",
+                "7",
+                "--max-var-num",
+                "2",
+                "--max-lag",
+                "3",
+                "--periods",
+                "1",
+                "3",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["run"]["inputs"]["desired_pool"] == ["USMORT30Y", "USPRIME"]
+    assert payload["run"]["inputs"]["top_n"] == 7
+    assert payload["run"]["inputs"]["search_config"] == {
+        "engine": {
+            "name": "technic_model_search",
+            "version": "legacy_adapter",
+        },
+        "driver_pool": ["USMORT30Y", "USPRIME"],
+        "forced_in": [],
+        "constraints": {
+            "top_n": 7,
+            "max_var_num": 2,
+            "max_lag": 3,
+            "periods": [1, 3],
+        },
+        "filter_profile": None,
+        "runtime_budget": {
+            "max_candidates": None,
+            "max_seconds": None,
+        },
+        "pilot_smoke": False,
+    }
+    assert payload["run"]["outputs"]["assets"] == []
+
+
+def test_cli_demo_fit_single_does_not_emit_search_config(monkeypatch, isolated_runs_root, capsys):
+    def fake_run_fit_single(*, specs, sample):
+        return {
+            "segment_id": "home_price_GR1",
+            "target": "home_price_GR1",
+            "selected_models": [{"model_id": "cm1"}],
+        }
+
+    monkeypatch.setattr(cli._demo_housing(), "run_fit_single", fake_run_fit_single)
+
+    assert cli.main(["demo", "fit-single", "--vars", "USMORT30Y", "--json"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert "search_config" not in payload["run"]["inputs"]
 
 
 def test_cli_run_inspect_latest_emits_json(isolated_runs_root, capsys):
