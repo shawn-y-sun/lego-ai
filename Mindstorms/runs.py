@@ -31,6 +31,10 @@ def _manifest_path(run_id: str) -> Path:
     return _run_dir(run_id) / "manifest.json"
 
 
+def _asset_index_path() -> Path:
+    return ASSETS_ROOT / "index.json"
+
+
 def write_manifest(manifest: Dict[str, Any]) -> Path:
     run_id = manifest["run_id"]
     run_dir = _run_dir(run_id)
@@ -92,6 +96,40 @@ def list_runs(limit: Optional[int] = None) -> List[Dict[str, Any]]:
     return runs
 
 
+def read_asset_index() -> Dict[str, Any]:
+    path = _asset_index_path()
+    if not path.exists():
+        return {"protocol_version": PROTOCOL_VERSION, "assets": []}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def upsert_asset_index_entries(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
+    index = read_asset_index()
+    by_id = {
+        entry["asset_id"]: entry
+        for entry in index.get("assets", [])
+        if "asset_id" in entry
+    }
+    for entry in entries:
+        by_id[entry["asset_id"]] = entry
+
+    index = {
+        "protocol_version": PROTOCOL_VERSION,
+        "assets": sorted(
+            by_id.values(),
+            key=lambda item: (
+                item.get("type", ""),
+                item.get("asset_id", ""),
+                item.get("created_at", ""),
+            ),
+        ),
+    }
+    path = _asset_index_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(index, indent=2, sort_keys=True), encoding="utf-8")
+    return index
+
+
 def normalize_outputs_for_protocol(outputs: Dict[str, Any]) -> Dict[str, Any]:
     normalized = dict(outputs)
 
@@ -142,6 +180,7 @@ def write_candidate_model_assets(
     target_segment = _asset_path_segment(target)
     created_at = manifest.get("completed_at") or utc_timestamp()
     existing_refs = list(normalized.get("assets") or [])
+    index_entries: List[Dict[str, Any]] = []
 
     for index, candidate in enumerate(selected_models, start=1):
         model_id = candidate.get("model_id") or f"candidate_{index:03d}"
@@ -174,9 +213,23 @@ def write_candidate_model_assets(
             json.dumps(asset_payload, indent=2, sort_keys=True),
             encoding="utf-8",
         )
-        existing_refs.append(asset_ref.to_dict())
+        asset_ref_payload = asset_ref.to_dict()
+        if asset_ref_payload not in existing_refs:
+            existing_refs.append(asset_ref_payload)
+        index_entries.append(
+            {
+                "asset_id": asset_id,
+                "type": "candidate_model",
+                "uri": asset_ref.uri,
+                "created_at": created_at,
+                "created_by_run_id": manifest["run_id"],
+                "source_run_id": manifest["run_id"],
+                "target": target,
+            }
+        )
 
     normalized["assets"] = existing_refs
+    upsert_asset_index_entries(index_entries)
     return normalized
 
 

@@ -147,3 +147,42 @@ def test_candidate_model_assets_are_written_and_referenced(isolated_runs_root):
     assert payload["formula"] == "home_price_GR1 ~ USMORT30Y"
     assert payload["specs"] == ["USMORT30Y"]
     assert payload["metrics"] == {"rsquared": 0.82}
+
+    index_path = isolated_runs_root.parent / "assets" / "index.json"
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    assert index == {
+        "protocol_version": "0.1",
+        "assets": [
+            {
+                "asset_id": "candidate_model:home_price_GR1:cm1",
+                "type": "candidate_model",
+                "uri": "asset://candidate_model/home_price_GR1/cm1.json",
+                "created_at": "2026-06-30T14:23:00Z",
+                "created_by_run_id": "search_001",
+                "source_run_id": "search_001",
+                "target": "home_price_GR1",
+            }
+        ],
+    }
+
+
+def test_asset_index_upserts_existing_asset_entries(isolated_runs_root):
+    first = {
+        "asset_id": "candidate_model:home_price_GR1:cm1",
+        "type": "candidate_model",
+        "uri": "asset://candidate_model/home_price_GR1/cm1.json",
+        "created_at": "2026-06-30T14:23:00Z",
+        "created_by_run_id": "search_001",
+    }
+    second = {
+        "asset_id": "candidate_model:home_price_GR1:cm1",
+        "type": "candidate_model",
+        "uri": "asset://candidate_model/home_price_GR1/cm1.json",
+        "created_at": "2026-06-30T15:00:00Z",
+        "created_by_run_id": "search_002",
+    }
+
+    runs.upsert_asset_index_entries([first])
+    runs.upsert_asset_index_entries([second])
+
+    assert runs.read_asset_index()["assets"] == [second]

@@ -1103,7 +1103,7 @@ agents, and what input flags it accepts.
 1. Add a compatibility reader that maps pre-v0.1 manifests to v0.1 shape.
 2. Add richer `CandidateModel` asset conversion from current demo fit/search
    outputs, including stable artifact references when available.
-3. Add a minimal file-based asset index for cross-run asset lookup.
+3. Add richer asset-index query helpers for cross-run lookup.
 4. Add `SearchPool` and `EvaluationResult` asset writing for the modeling loop.
 5. Add a transition plan for eventually hiding or dropping legacy manifest
    fields once downstream consumers use v0.1 fields.
