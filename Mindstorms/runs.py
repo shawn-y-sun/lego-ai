@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -11,11 +11,12 @@ LATEST_FILE = RUNS_ROOT / "latest"
 
 
 def utc_timestamp() -> str:
-    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    value = datetime.now(timezone.utc).replace(microsecond=0)
+    return value.isoformat().replace("+00:00", "Z")
 
 
 def new_run_id(prefix: str = "run") -> str:
-    return f"{prefix}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')}"
+    return f"{prefix}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}"
 
 
 def _run_dir(run_id: str) -> Path:
