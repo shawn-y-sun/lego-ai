@@ -71,8 +71,12 @@ def test_cli_demo_search_smoke_parser_path(monkeypatch, isolated_runs_root, caps
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
     assert payload["run"]["workflow"] == "demo_housing_search_smoke"
+    assert payload["run"]["workflow_id"] == "demo_housing_search_smoke"
     assert payload["run"]["inputs"]["filter_profile"] == "relaxed_demo_smoke"
     assert payload["run"]["outputs"]["selected_count"] == 1
+    assert payload["run"]["outputs"]["summary"]["selected_count"] == 1
+    assert payload["run"]["outputs"]["assets"] == []
+    assert payload["run"]["outputs"]["diagnostics"] == {}
 
 
 def test_cli_run_inspect_latest_emits_json(isolated_runs_root, capsys):

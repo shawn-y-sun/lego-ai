@@ -8,7 +8,15 @@ from io import StringIO
 from typing import Any, Callable, Dict, Optional, Sequence
 
 from . import __version__
-from .runs import base_manifest, fail_manifest, list_runs, new_run_id, read_manifest, write_manifest
+from .runs import (
+    base_manifest,
+    fail_manifest,
+    list_runs,
+    new_run_id,
+    normalize_outputs_for_protocol,
+    read_manifest,
+    write_manifest,
+)
 from .warnings import summarize_warning_text
 
 
@@ -47,8 +55,9 @@ def _run_quietly(func: Callable[[], Dict[str, Any]], *, verbose: bool) -> Dict[s
 
 def _complete_manifest(manifest: Dict[str, Any], outputs: Dict[str, Any]) -> Dict[str, Any]:
     manifest["status"] = "succeeded"
-    manifest["outputs"] = outputs
+    manifest["outputs"] = normalize_outputs_for_protocol(outputs)
     manifest["warnings"] = outputs.get("warnings", [])
+    manifest["errors"] = []
     from .runs import utc_timestamp
 
     manifest["completed_at"] = utc_timestamp()

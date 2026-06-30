@@ -29,6 +29,11 @@ def test_write_read_list_and_latest_manifest(isolated_runs_root):
     assert json.loads(path.read_text(encoding="utf-8"))["run_id"] == "fit_001"
     assert runs.latest_run_id() == "fit_001"
     assert runs.read_manifest("latest")["inputs"] == {"specs": ["USMORT30Y"]}
+    stored = runs.read_manifest("latest")
+    assert stored["protocol_version"] == "0.1"
+    assert stored["workflow_id"] == "demo_housing_fit_single"
+    assert stored["warnings"] == []
+    assert stored["errors"] == []
 
     listed = runs.list_runs()
     assert listed == [
@@ -63,3 +68,31 @@ def test_latest_run_id_falls_back_to_newest_manifest(isolated_runs_root):
     runs.LATEST_FILE.unlink()
 
     assert runs.latest_run_id() == "fit_002"
+
+
+def test_outputs_are_normalized_for_v0_1_without_removing_legacy_fields():
+    outputs = runs.normalize_outputs_for_protocol(
+        {
+            "segment_id": "home_price_GR1",
+            "target": "home_price_GR1",
+            "search_id": "search_001",
+            "selected_count": 1,
+            "selected_models": [{"model_id": "cm1"}],
+            "captured_stdout": "hello",
+            "captured_stderr": "warn",
+        }
+    )
+
+    assert outputs["selected_count"] == 1
+    assert outputs["selected_models"] == [{"model_id": "cm1"}]
+    assert outputs["summary"] == {
+        "segment_id": "home_price_GR1",
+        "target": "home_price_GR1",
+        "search_id": "search_001",
+        "selected_count": 1,
+    }
+    assert outputs["assets"] == []
+    assert outputs["diagnostics"] == {
+        "captured_stdout": "hello",
+        "captured_stderr": "warn",
+    }

@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from .protocol import PROTOCOL_VERSION
+
 
 RUNS_ROOT = Path(".lego") / "runs"
 LATEST_FILE = RUNS_ROOT / "latest"
@@ -88,6 +90,36 @@ def list_runs(limit: Optional[int] = None) -> List[Dict[str, Any]]:
     return runs
 
 
+def normalize_outputs_for_protocol(outputs: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = dict(outputs)
+
+    summary = dict(normalized.get("summary") or {})
+    for key in (
+        "segment_id",
+        "target",
+        "search_id",
+        "selected_count",
+        "zero_selected_is_valid",
+        "pilot_smoke",
+    ):
+        if key in normalized and key not in summary:
+            summary[key] = normalized[key]
+
+    diagnostics = dict(normalized.get("diagnostics") or {})
+    for key in ("captured_stdout", "captured_stderr"):
+        if key in normalized and key not in diagnostics:
+            diagnostics[key] = normalized[key]
+
+    assets = normalized.get("assets")
+    if assets is None:
+        assets = []
+
+    normalized["summary"] = summary
+    normalized["assets"] = assets
+    normalized["diagnostics"] = diagnostics
+    return normalized
+
+
 def base_manifest(
     *,
     run_id: str,
@@ -97,14 +129,18 @@ def base_manifest(
     inputs: Dict[str, Any],
 ) -> Dict[str, Any]:
     return {
+        "protocol_version": PROTOCOL_VERSION,
         "run_id": run_id,
         "created_at": utc_timestamp(),
         "workflow": workflow,
+        "workflow_id": workflow,
         "segment_id": segment_id,
         "target": target,
         "status": "running",
         "inputs": inputs,
         "outputs": {},
+        "warnings": [],
+        "errors": [],
     }
 
 
@@ -114,5 +150,14 @@ def fail_manifest(manifest: Dict[str, Any], exc: BaseException) -> Dict[str, Any
         "type": type(exc).__name__,
         "message": str(exc),
     }
+    manifest["errors"] = [
+        {
+            "code": "WORKFLOW_FAILED",
+            "severity": "error",
+            "fatal": True,
+            "message": str(exc),
+            "exception_type": type(exc).__name__,
+        }
+    ]
     manifest["completed_at"] = utc_timestamp()
     return manifest
