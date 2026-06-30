@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lego-ai"
+version = "0.1.0"
+description = "Project LEGO modeling framework with the Mindstorms agent CLI."
+readme = "README.md"
+requires-python = ">=3.7"
+dependencies = [
+  "arch",
+  "cloudpickle",
+  "matplotlib",
+  "numpy",
+  "openpyxl",
+  "pandas",
+  "PyYAML",
+  "scipy",
+  "statsmodels",
+  "tqdm",
+]
+
+[project.scripts]
+lego = "Mindstorms.cli:main"
+
+[tool.setuptools]
+packages = ["Mindstorms", "Technic"]
