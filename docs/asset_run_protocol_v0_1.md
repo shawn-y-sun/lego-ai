@@ -50,6 +50,9 @@ interface.
    suggest defaults, but the frame must declare its effective assumptions.
 9. Stable fields are safe for agents and Studio to rely on. Diagnostic fields
    are not.
+10. Roadmap slices should stay vertical: each slice should connect a small
+    protocol concept through CLI output, run manifests, persisted assets when
+    needed, and tests so the project can iterate quickly from real feedback.
 
 ## Vocabulary
 
@@ -67,6 +70,7 @@ Examples:
 - `build_features`
 - `define_modeling_frame`
 - `curate_search_pool`
+- `prepare_search_config`
 - `search_candidate_models`
 - `evaluate_candidates`
 - `diagnose_model_gaps`
@@ -151,6 +155,15 @@ SearchPool is the curated set of drivers that are allowed into a candidate
 model search for a ModelingFrame or ModelingIteration. It records inclusion and
 exclusion judgment.
 
+### SearchConfig
+
+SearchConfig records the concrete parameters used to execute one model search:
+driver pool, forced-in variables, lag limits, maximum variable count, periods,
+filter profile, engine options, and runtime budget.
+
+SearchConfig answers "what did this search run do?" SearchPool answers "why
+were these drivers allowed into the search?"
+
 ### CandidateModel
 
 CandidateModel is a model option produced by model search or an on-demand fit.
@@ -188,9 +201,10 @@ development loop.
 
 1. `build_features`
 2. `curate_search_pool`
-3. `search_candidate_models`
-4. `evaluate_candidates`
-5. `diagnose_model_gaps`
+3. `prepare_search_config`
+4. `search_candidate_models`
+5. `evaluate_candidates`
+6. `diagnose_model_gaps`
 
 The loop repeats until the model owner or senior reviewer approves a candidate
 model.
@@ -224,6 +238,9 @@ DataProfile ----------------------------> ModelingFrame
                                            SearchPool
                                                 |
                                                 v
+                                          SearchConfig
+                                                |
+                                                v
                                         CandidateModel(s)
                                                 |
                                                 v
@@ -246,7 +263,7 @@ Base Asset Envelope fields that still apply to durable Asset JSON files.
 
 ### v0.1 Object Maturity
 
-Required in v0.1:
+Required in the v0.1 protocol core:
 
 - `RunManifest`
 - `Asset`
@@ -254,13 +271,21 @@ Required in v0.1:
 - `ArtifactRef`
 - `WarningRecord`
 - `ErrorRecord`
+
+Required for the current Mindstorms candidate-model slice:
+
+- `CandidateModel`
+- `SearchConfig` as stable search-run input; it may become a durable Asset when
+  another object needs to reference it directly
+
+Required when the corresponding lifecycle workflow is implemented:
+
 - `ProjectContext`
 - `DatasetSnapshot`
 - `ModelingFrame`
 - `ModelingIteration`
 - `FeatureSet`
 - `SearchPool`
-- `CandidateModel`
 - `EvaluationResult`
 - `ApprovalDecision`
 
@@ -269,6 +294,7 @@ Optional in v0.1:
 - `DataProfile`
 - `DerivedDatasetSnapshot`
 - `FeatureRecipe`
+- durable `SearchConfig` asset files
 - `.lego/assets/index.json`
 - recipe library folders
 - full `.lego/projects/<project_id>/` layout
@@ -767,6 +793,55 @@ Suggested iteration statuses:
 - `approved`
 - `abandoned`
 
+### SearchConfig
+
+SearchConfig records how a specific model search was executed. It is separate
+from SearchPool because execution parameters are not the same thing as driver
+selection judgment.
+
+In early v0.1 implementation, SearchConfig can live directly in the
+`search_candidate_models` run `inputs`. It should only be persisted as a
+durable Asset if another Asset needs to reference it directly or if the same
+configuration is reused across runs.
+
+```json
+{
+  "asset_id": "search_config:home_price_GR1:search_20260630_1020",
+  "type": "search_config",
+  "modeling_frame_id": "modeling_frame:home_price_GR1:v1",
+  "modeling_iteration_id": "modeling_iteration:home_price_GR1:iter_003",
+  "search_pool_id": "search_pool:home_price_GR1:iter_003",
+  "engine": {
+    "name": "technic_model_search",
+    "version": "legacy_adapter"
+  },
+  "driver_pool": ["USMORT30_T10_SPRD", "USPRIME_FF_SPRD", "USUNRATE"],
+  "forced_in": [],
+  "constraints": {
+    "top_n": 5,
+    "max_var_num": 2,
+    "max_lag": 1,
+    "periods": [1]
+  },
+  "filter_profile": "default",
+  "runtime_budget": {
+    "max_candidates": null,
+    "max_seconds": null
+  }
+}
+```
+
+Design rules:
+
+- SearchConfig records execution facts.
+- SearchPool records curation judgment.
+- Legacy CLI inputs such as `desired_pool`, `top_n`, `max_var_num`, and
+  `max_lag` should become SearchConfig fields first.
+- Do not synthesize a SearchPool from CLI inputs alone unless the workflow also
+  records driver inclusion/exclusion rationale or screening evidence.
+- If no SearchPool exists yet, CandidateModel assets can rely on
+  `source_run_id` plus the run's stable SearchConfig input for reproducibility.
+
 ### SearchPool
 
 ```json
@@ -1092,10 +1167,12 @@ agents, and what input flags it accepts.
    both?
 4. Should `SearchPool` include statistical screening outputs directly, or
    reference a separate screening asset?
-5. Should `EvaluationResult` define a stable weakness-code enum in v0.1?
-6. Should approval require a human identity field, or allow agent-recommended
+5. Should `SearchConfig` remain only as stable run input for v0.1, or should
+   search runs also write durable `search_config` assets?
+6. Should `EvaluationResult` define a stable weakness-code enum in v0.1?
+7. Should approval require a human identity field, or allow agent-recommended
    approval proposals that still require human acceptance?
-7. How should sensitive data paths or corporate-only data references be
+8. How should sensitive data paths or corporate-only data references be
    represented without leaking machine-local paths?
 
 ## Future Implementation Slices
@@ -1103,8 +1180,13 @@ agents, and what input flags it accepts.
 1. Add a compatibility reader that maps pre-v0.1 manifests to v0.1 shape.
 2. Add richer `CandidateModel` asset conversion from current demo fit/search
    outputs, including stable artifact references when available.
-3. Add `SearchPool` and `EvaluationResult` asset writing for the modeling loop.
-4. Add a transition plan for eventually hiding or dropping legacy manifest
+3. Add stable `SearchConfig` mapping for search runs, keeping legacy CLI search
+   parameters separate from curated `SearchPool` judgment.
+4. Add `SearchPool` asset writing only after there is a workflow or input
+   surface that captures included/excluded driver rationale or screening
+   evidence.
+5. Add `EvaluationResult` asset writing for the modeling loop.
+6. Add a transition plan for eventually hiding or dropping legacy manifest
    fields once downstream consumers use v0.1 fields.
-5. Add recipe proposal/build feature design prototypes before implementing full
+7. Add recipe proposal/build feature design prototypes before implementing full
    natural-language feature engineering.
