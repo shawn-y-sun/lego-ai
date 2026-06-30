@@ -241,7 +241,123 @@ DataProfile ----------------------------> ModelingFrame
 ## Protocol Objects
 
 The examples below show intended object shape. v0.1 should keep these schemas
-small and expandable.
+small and expandable. For readability, type-specific examples may omit common
+Base Asset Envelope fields that still apply to durable Asset JSON files.
+
+### v0.1 Object Maturity
+
+Required in v0.1:
+
+- `RunManifest`
+- `Asset`
+- `AssetRef`
+- `ArtifactRef`
+- `WarningRecord`
+- `ErrorRecord`
+- `ProjectContext`
+- `DatasetSnapshot`
+- `ModelingFrame`
+- `ModelingIteration`
+- `FeatureSet`
+- `SearchPool`
+- `CandidateModel`
+- `EvaluationResult`
+- `ApprovalDecision`
+
+Optional in v0.1:
+
+- `DataProfile`
+- `DerivedDatasetSnapshot`
+- `FeatureRecipe`
+- `.lego/assets/index.json`
+- recipe library folders
+- full `.lego/projects/<project_id>/` layout
+- compatibility reader for pre-v0.1 run manifests
+
+Future or experimental:
+
+- `FeatureRecipeProposal`
+- natural-language recipe generation lifecycle
+- stable formula language beyond simple expression metadata
+- separate `ScreeningResult` assets
+- full `ModelPackage` schema
+- Studio-facing view models
+- database-backed asset registry
+- delegated human/agent approval workflow
+
+### Base Asset Envelope
+
+Every durable Asset JSON should share a small stable envelope. Type-specific
+fields can extend this envelope, but consumers should be able to read lineage,
+provenance, and artifacts from these common fields.
+
+Required stable fields:
+
+- `protocol_version`
+- `asset_id`
+- `type`
+- `created_at`
+- `created_by_run_id`
+- `source_asset_ids`
+- `artifact_refs`
+
+Recommended optional fields:
+
+- `project_context_id`
+- `modeling_frame_id`
+- `modeling_iteration_id`
+- `name`
+- `description`
+- `tags`
+
+Example:
+
+```json
+{
+  "protocol_version": "0.1",
+  "asset_id": "candidate_model:home_price_GR1:cm17",
+  "type": "candidate_model",
+  "created_at": "2026-06-30T10:24:12Z",
+  "created_by_run_id": "search_20260630_102300",
+  "source_asset_ids": [
+    "modeling_frame:home_price_GR1:v1",
+    "search_pool:home_price_GR1:iter_003"
+  ],
+  "artifact_refs": [
+    {
+      "uri": "technic://Segment/home_price_GR1/cms/search_20260630_102300/cm17",
+      "media_type": "application/vnd.lego.technic-candidate"
+    }
+  ]
+}
+```
+
+### AssetRef Shape
+
+AssetRefs are lightweight pointers to durable Asset JSON files. They are safe
+to embed in run manifests, asset fields, summaries, or indexes.
+
+Required stable fields:
+
+- `asset_id`
+- `type`
+- `uri`
+
+Recommended optional fields:
+
+- `role`
+- `label`
+
+Example:
+
+```json
+{
+  "asset_id": "candidate_model:home_price_GR1:cm17",
+  "type": "candidate_model",
+  "role": "best_candidate",
+  "uri": "asset://candidate_model/home_price_GR1/cm17.json"
+}
+```
 
 ### Run Manifest
 
@@ -876,6 +992,22 @@ index over asset files rather than the source of truth. A reader should be able
 to resolve an AssetRef directly to the corresponding asset JSON without the
 index.
 
+AssetRef URI mapping should be direct and local in v0.1:
+
+```text
+asset://candidate_model/home_price_GR1/cm17.json
+-> .lego/assets/candidate_model/home_price_GR1/cm17.json
+```
+
+Rules:
+
+- The URI scheme must be `asset://`.
+- The URI path must be relative to `.lego/assets/`.
+- The URI path should end in `.json`.
+- The URI path should not contain `..`, drive letters, or absolute paths.
+- The URI path should be stable across machines and should not include
+  machine-local temporary directories.
+
 Generated `.lego/` artifacts remain local run outputs and should not be
 committed unless a specific fixture or example is intentionally added.
 
@@ -924,29 +1056,29 @@ agents, and what input flags it accepts.
 
 ## Open Questions
 
-1. Should `ProjectContext` itself be an asset in the asset index, or a separate
-   project metadata document referenced by assets?
+1. Should `ProjectContext` also have a project metadata mirror under
+   `.lego/projects/<project_id>/context.json`, or only exist as an Asset?
 2. How much formula language should v0.1 standardize for feature recipes?
 3. Should feature recipes be executable definitions, descriptive definitions, or
    both?
 4. Should `SearchPool` include statistical screening outputs directly, or
    reference a separate screening asset?
 5. Should `EvaluationResult` define a stable weakness-code enum in v0.1?
-6. What is the minimum viable AssetRef URI grammar and file path mapping?
-7. Should approval require a human identity field, or allow agent-recommended
+6. Should approval require a human identity field, or allow agent-recommended
    approval proposals that still require human acceptance?
-8. How should sensitive data paths or corporate-only data references be
+7. How should sensitive data paths or corporate-only data references be
    represented without leaking machine-local paths?
 
 ## Future Implementation Slices
 
-1. Add protocol dataclasses or typed dictionaries for `Run`, `AssetRef`,
-   `ArtifactRef`, `WarningRecord`, and `ErrorRecord`.
+1. Add protocol dataclasses or typed dictionaries for `Run`, `Asset`,
+   `AssetRef`, `ArtifactRef`, `WarningRecord`, and `ErrorRecord`.
 2. Update Mindstorms run manifests to emit `protocol_version`, `workflow_id`,
    `outputs.summary`, `outputs.assets`, and `outputs.diagnostics`.
 3. Add a compatibility reader that maps current manifests to v0.1 shape.
-4. Add `CandidateModel` asset conversion for current demo fit/search outputs.
-5. Add standalone asset JSON writing for `CandidateModel` outputs.
-6. Add a minimal file-based asset index for cross-run asset lookup.
+4. Add standalone asset JSON writing for current demo fit/search
+   `CandidateModel` outputs.
+5. Add a minimal file-based asset index for cross-run asset lookup.
+6. Add `SearchPool` and `EvaluationResult` asset writing for the modeling loop.
 7. Add recipe proposal/build feature design prototypes before implementing full
    natural-language feature engineering.
