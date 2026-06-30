@@ -59,7 +59,7 @@ def read_manifest(run_id: str) -> Dict[str, Any]:
     path = _manifest_path(run_id)
     if not path.exists():
         raise FileNotFoundError(f"No run manifest found for '{run_id}'.")
-    return json.loads(path.read_text(encoding="utf-8"))
+    return normalize_manifest_for_protocol(json.loads(path.read_text(encoding="utf-8")))
 
 
 def latest_run_id() -> str:
@@ -190,6 +190,40 @@ def search_config_from_inputs(inputs: Dict[str, Any]) -> Dict[str, Any]:
         },
         "pilot_smoke": bool(inputs.get("pilot_smoke", False)),
     }
+
+
+def normalize_manifest_for_protocol(manifest: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = dict(manifest)
+    workflow = normalized.get("workflow")
+
+    normalized.setdefault("protocol_version", PROTOCOL_VERSION)
+    if "workflow_id" not in normalized and workflow is not None:
+        normalized["workflow_id"] = workflow
+
+    inputs = dict(normalized.get("inputs") or {})
+    workflow_id = normalized.get("workflow_id") or workflow
+    if (
+        workflow_id in ("demo_housing_search", "demo_housing_search_smoke")
+        and "search_config" not in inputs
+    ):
+        inputs["search_config"] = search_config_from_inputs(inputs)
+    normalized["inputs"] = inputs
+
+    outputs = dict(normalized.get("outputs") or {})
+    diagnostics = dict(outputs.get("diagnostics") or {})
+    for key in ("captured_stdout", "captured_stderr"):
+        if key in normalized and key not in diagnostics:
+            diagnostics[key] = normalized[key]
+    if diagnostics:
+        outputs["diagnostics"] = diagnostics
+    normalized["outputs"] = normalize_outputs_for_protocol(outputs)
+
+    warnings = normalized.get("warnings")
+    normalized["warnings"] = warnings if isinstance(warnings, list) else []
+    errors = normalized.get("errors")
+    normalized["errors"] = errors if isinstance(errors, list) else []
+
+    return normalized
 
 
 def normalize_outputs_for_protocol(outputs: Dict[str, Any]) -> Dict[str, Any]:
