@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, Optional, Sequence
 
 from . import __version__
 from .runs import base_manifest, fail_manifest, list_runs, new_run_id, read_manifest, write_manifest
+from .warnings import summarize_warning_text
 
 
 DEMO_SEGMENT_ID = "home_price_GR1"
@@ -38,16 +39,63 @@ def _run_quietly(func: Callable[[], Dict[str, Any]], *, verbose: bool) -> Dict[s
         result["captured_stdout"] = logs[-4000:]
     if errors:
         result["captured_stderr"] = errors[-4000:]
+    warnings = summarize_warning_text("\n".join(part for part in (logs, errors) if part))
+    if warnings:
+        result["warnings"] = warnings
     return result
 
 
 def _complete_manifest(manifest: Dict[str, Any], outputs: Dict[str, Any]) -> Dict[str, Any]:
     manifest["status"] = "succeeded"
     manifest["outputs"] = outputs
+    manifest["warnings"] = outputs.get("warnings", [])
     from .runs import utc_timestamp
 
     manifest["completed_at"] = utc_timestamp()
     return manifest
+
+
+def command_catalog() -> Dict[str, Any]:
+    return {
+        "commands": [
+            {
+                "name": "demo init",
+                "purpose": "Build the demo housing segment and write a run manifest.",
+                "example": "lego demo init --json",
+                "safe_for_pilot": True,
+            },
+            {
+                "name": "demo fit-single",
+                "purpose": "Fit one known-good demo candidate model.",
+                "example": "lego demo fit-single --vars USMORT30Y --json",
+                "safe_for_pilot": True,
+            },
+            {
+                "name": "demo search-smoke",
+                "purpose": "Run a small relaxed-filter demo search that exercises search plumbing and should select at least one model.",
+                "example": "lego demo search-smoke --json",
+                "safe_for_pilot": True,
+            },
+            {
+                "name": "demo search",
+                "purpose": "Run an honest small demo model search; zero selected models can be a valid modeling outcome.",
+                "example": "lego demo search --top-n 5 --max-var-num 2 --max-lag 1 --json",
+                "safe_for_pilot": False,
+            },
+            {
+                "name": "runs list",
+                "purpose": "List recent Mindstorms run manifests.",
+                "example": "lego runs list --json",
+                "safe_for_pilot": True,
+            },
+            {
+                "name": "run inspect",
+                "purpose": "Inspect one run manifest by run ID or latest.",
+                "example": "lego run inspect latest --json",
+                "safe_for_pilot": True,
+            },
+        ]
+    }
 
 
 def cmd_demo_init(args: argparse.Namespace) -> int:
@@ -162,6 +210,51 @@ def cmd_demo_search(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_demo_search_smoke(args: argparse.Namespace) -> int:
+    demo_housing = _demo_housing()
+    run_id = new_run_id("search_smoke")
+    search_suffix = run_id[len("search_smoke_") :] if run_id.startswith("search_smoke_") else run_id
+    search_id = f"search_{DEMO_SEGMENT_ID}_smoke_{search_suffix}"
+    inputs = {
+        "desired_pool": ["USMORT30Y"],
+        "forced_in": [],
+        "top_n": 1,
+        "max_var_num": 1,
+        "max_lag": 0,
+        "periods": [1],
+        "pilot_smoke": True,
+        "filter_profile": "relaxed_demo_smoke",
+    }
+    manifest = base_manifest(
+        run_id=run_id,
+        workflow="demo_housing_search_smoke",
+        segment_id=DEMO_SEGMENT_ID,
+        target=DEMO_TARGET,
+        inputs=inputs,
+    )
+    try:
+        outputs = _run_quietly(
+            lambda: demo_housing.run_search_smoke(search_id=search_id),
+            verbose=args.verbose,
+        )
+        manifest = _complete_manifest(manifest, outputs)
+        path = write_manifest(manifest)
+        emit_json({"ok": True, "manifest_path": str(path), "run": manifest})
+        return 0
+    except Exception as exc:
+        manifest = fail_manifest(manifest, exc)
+        if args.debug:
+            manifest["traceback"] = traceback.format_exc()
+        path = write_manifest(manifest)
+        emit_json({"ok": False, "manifest_path": str(path), "run": manifest})
+        return 1
+
+
+def cmd_help_json(args: argparse.Namespace) -> int:
+    emit_json({"ok": True, **command_catalog()})
+    return 0
+
+
 def cmd_runs_list(args: argparse.Namespace) -> int:
     emit_json({"ok": True, "runs": list_runs(limit=args.limit)})
     return 0
@@ -180,6 +273,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m Mindstorms.cli")
     parser.add_argument("--version", action="version", version=f"Mindstorms {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    help_cmd = sub.add_parser("help", help="Emit a machine-readable command catalog.")
+    help_cmd.add_argument("--json", action="store_true", help="Emit the command catalog as JSON.")
+    help_cmd.set_defaults(func=cmd_help_json)
 
     demo = sub.add_parser("demo", help="Run demo housing workflows.")
     demo_sub = demo.add_subparsers(dest="demo_command", required=True)
@@ -208,6 +305,12 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--verbose", action="store_true")
     search.add_argument("--debug", action="store_true")
     search.set_defaults(func=cmd_demo_search)
+
+    search_smoke = demo_sub.add_parser("search-smoke", help="Run a reliable demo search smoke test.")
+    search_smoke.add_argument("--json", action="store_true", help="Accepted for agent-friendly command symmetry.")
+    search_smoke.add_argument("--verbose", action="store_true")
+    search_smoke.add_argument("--debug", action="store_true")
+    search_smoke.set_defaults(func=cmd_demo_search_smoke)
 
     runs = sub.add_parser("runs", help="Inspect Mindstorms runs.")
     runs_sub = runs.add_subparsers(dest="runs_command", required=True)

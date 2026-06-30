@@ -39,6 +39,42 @@ def test_cli_runs_list_emits_json(isolated_runs_root, capsys):
     assert payload["runs"][0]["run_id"] == "init_001"
 
 
+def test_cli_help_json_catalog_highlights_pilot_path(capsys):
+    assert cli.main(["help", "--json"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    commands = {item["name"]: item for item in payload["commands"]}
+
+    assert payload["ok"] is True
+    assert commands["demo init"]["safe_for_pilot"] is True
+    assert commands["demo fit-single"]["safe_for_pilot"] is True
+    assert commands["demo search-smoke"]["safe_for_pilot"] is True
+    assert commands["demo search"]["safe_for_pilot"] is False
+
+
+def test_cli_demo_search_smoke_parser_path(monkeypatch, isolated_runs_root, capsys):
+    def fake_run_search_smoke(*, search_id):
+        return {
+            "segment_id": "home_price_GR1",
+            "target": "home_price_GR1",
+            "search_id": search_id,
+            "selected_models": [{"model_id": "cm1"}],
+            "selected_count": 1,
+            "zero_selected_is_valid": True,
+            "pilot_smoke": True,
+        }
+
+    monkeypatch.setattr(cli._demo_housing(), "run_search_smoke", fake_run_search_smoke)
+
+    assert cli.main(["demo", "search-smoke", "--json"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["run"]["workflow"] == "demo_housing_search_smoke"
+    assert payload["run"]["inputs"]["filter_profile"] == "relaxed_demo_smoke"
+    assert payload["run"]["outputs"]["selected_count"] == 1
+
+
 def test_cli_run_inspect_latest_emits_json(isolated_runs_root, capsys):
     manifest = runs.base_manifest(
         run_id="fit_001",

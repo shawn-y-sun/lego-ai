@@ -144,21 +144,24 @@ The demo notebooks (`DEMO_1` through `DEMO_4`) demonstrate the full pipeline. Be
 ```bash
 pip install -e .
 lego --version
+lego help --json
 lego demo init --json
 lego demo fit-single --vars USMORT30Y --json
-lego demo search --top-n 5 --max-var-num 2 --max-lag 1 --json
+lego demo search-smoke --json
 lego runs list --json
 lego run inspect latest --json
 
+python -m Mindstorms.cli help --json
 python -m Mindstorms.cli demo init --json
 python -m Mindstorms.cli demo fit-single --vars USMORT30Y --json
-python -m Mindstorms.cli demo search --top-n 5 --max-var-num 2 --max-lag 1 --json
+python -m Mindstorms.cli demo search-smoke --json
 python -m Mindstorms.cli runs list --json
 python -m Mindstorms.cli run inspect latest --json
 ```
 
-The search command intentionally defaults to a tiny demo driver pool so coding agents can prove
-the end-to-end workflow before attempting a larger exhaustive search.
+`demo search-smoke` is the reliable pilot search path. The regular `demo search` command
+keeps honest model-search semantics and can validly return zero selected models when no
+candidate passes its filters.
 
 For company-laptop setup and Copilot CLI smoke tests, see `docs/copilot_cli_pilot.md`.
 

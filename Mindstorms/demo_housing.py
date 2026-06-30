@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 import pandas as pd
 
@@ -188,6 +188,8 @@ def run_search(
     max_lag: int = 1,
     periods: Optional[Sequence[int]] = None,
     search_id: Optional[str] = None,
+    modeltest_update_func: Optional[Callable[..., Dict[str, Any]]] = None,
+    pilot_smoke: bool = False,
 ) -> Dict[str, Any]:
     seg = build_demo_segment()
     seg.working_dir = _repo_root()
@@ -200,6 +202,7 @@ def run_search(
         max_var_num=max_var_num,
         max_lag=max_lag,
         periods=periods,
+        modeltest_update_func=modeltest_update_func,
         overwrite=True,
         search_id=search_id,
     )
@@ -211,5 +214,33 @@ def run_search(
         "target": seg.target,
         "search_id": effective_search_id,
         "selected_models": selected,
+        "selected_count": len(selected),
+        "zero_selected_is_valid": True,
+        "pilot_smoke": pilot_smoke,
         "artifacts_dir": str(artifacts_dir),
     }
+
+
+def smoke_search_test_overrides() -> Dict[str, Any]:
+    """Relax demo filters for a fast search-plumbing smoke test."""
+    return {
+        "Coefficient Significance": {"filter_on": False},
+        "In-Sample R-sq": {"filter_on": False},
+        "Multicollinearity": {"filter_on": False},
+        "Residual Stationarity": {"filter_on": False},
+        "Sign Check": {"filter_on": False},
+    }
+
+
+def run_search_smoke(*, search_id: Optional[str] = None) -> Dict[str, Any]:
+    return run_search(
+        desired_pool=["USMORT30Y"],
+        forced_in=[],
+        top_n=1,
+        max_var_num=1,
+        max_lag=0,
+        periods=[1],
+        search_id=search_id,
+        modeltest_update_func=smoke_search_test_overrides,
+        pilot_smoke=True,
+    )
