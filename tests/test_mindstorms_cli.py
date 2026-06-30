@@ -103,3 +103,44 @@ def test_cli_run_inspect_latest_emits_json(isolated_runs_root, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
     assert payload["run"]["run_id"] == "fit_001"
+
+
+def test_cli_assets_list_and_asset_inspect_emit_json(isolated_runs_root, capsys):
+    asset_ref = {
+        "asset_id": "candidate_model:home_price_GR1:cm1",
+        "type": "candidate_model",
+        "uri": "asset://candidate_model/home_price_GR1/cm1.json",
+        "created_at": "2026-06-30T14:23:00Z",
+        "created_by_run_id": "search_001",
+        "source_run_id": "search_001",
+        "target": "home_price_GR1",
+    }
+    runs.upsert_asset_index_entries([asset_ref])
+    asset_path = isolated_runs_root.parent / "assets" / "candidate_model" / "home_price_GR1" / "cm1.json"
+    asset_path.parent.mkdir(parents=True, exist_ok=True)
+    asset_path.write_text(
+        json.dumps(
+            {
+                "protocol_version": "0.1",
+                "asset_id": "candidate_model:home_price_GR1:cm1",
+                "type": "candidate_model",
+                "created_at": "2026-06-30T14:23:00Z",
+                "created_by_run_id": "search_001",
+                "source_asset_ids": [],
+                "artifact_refs": [],
+                "model_id": "cm1",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert cli.main(["assets", "list", "--json"]) == 0
+    list_payload = json.loads(capsys.readouterr().out)
+    assert list_payload["ok"] is True
+    assert list_payload["assets"] == [asset_ref]
+
+    assert cli.main(["asset", "inspect", "candidate_model:home_price_GR1:cm1", "--json"]) == 0
+    inspect_payload = json.loads(capsys.readouterr().out)
+    assert inspect_payload["ok"] is True
+    assert inspect_payload["asset"]["asset_id"] == "candidate_model:home_price_GR1:cm1"
+    assert inspect_payload["asset_ref"] == asset_ref

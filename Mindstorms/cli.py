@@ -11,9 +11,11 @@ from . import __version__
 from .runs import (
     base_manifest,
     fail_manifest,
+    list_assets,
     list_runs,
     new_run_id,
     normalize_outputs_for_protocol,
+    read_asset,
     read_manifest,
     write_candidate_model_assets,
     write_manifest,
@@ -103,6 +105,18 @@ def command_catalog() -> Dict[str, Any]:
                 "name": "run inspect",
                 "purpose": "Inspect one run manifest by run ID or latest.",
                 "example": "lego run inspect latest --json",
+                "safe_for_pilot": True,
+            },
+            {
+                "name": "assets list",
+                "purpose": "List indexed protocol assets.",
+                "example": "lego assets list --json",
+                "safe_for_pilot": True,
+            },
+            {
+                "name": "asset inspect",
+                "purpose": "Inspect one protocol asset by asset ID.",
+                "example": "lego asset inspect candidate_model:home_price_GR1:cm1 --json",
                 "safe_for_pilot": True,
             },
         ]
@@ -280,6 +294,30 @@ def cmd_run_inspect(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_assets_list(args: argparse.Namespace) -> int:
+    emit_json(
+        {
+            "ok": True,
+            "assets": list_assets(
+                asset_type=args.type,
+                target=args.target,
+                limit=args.limit,
+            ),
+        }
+    )
+    return 0
+
+
+def cmd_asset_inspect(args: argparse.Namespace) -> int:
+    try:
+        payload = read_asset(args.asset_id)
+        emit_json({"ok": True, **payload})
+        return 0
+    except Exception as exc:
+        emit_json({"ok": False, "error": {"type": type(exc).__name__, "message": str(exc)}})
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m Mindstorms.cli")
     parser.add_argument("--version", action="version", version=f"Mindstorms {__version__}")
@@ -336,6 +374,22 @@ def build_parser() -> argparse.ArgumentParser:
     inspect.add_argument("run_id", help="Run ID or 'latest'.")
     inspect.add_argument("--json", action="store_true", help="Accepted for agent-friendly command symmetry.")
     inspect.set_defaults(func=cmd_run_inspect)
+
+    assets = sub.add_parser("assets", help="Inspect protocol assets.")
+    assets_sub = assets.add_subparsers(dest="assets_command", required=True)
+    assets_list = assets_sub.add_parser("list", help="List indexed assets.")
+    assets_list.add_argument("--type", help="Filter by asset type.")
+    assets_list.add_argument("--target", help="Filter by target.")
+    assets_list.add_argument("--limit", type=int)
+    assets_list.add_argument("--json", action="store_true", help="Accepted for agent-friendly command symmetry.")
+    assets_list.set_defaults(func=cmd_assets_list)
+
+    asset = sub.add_parser("asset", help="Inspect one protocol asset.")
+    asset_sub = asset.add_subparsers(dest="asset_command", required=True)
+    asset_inspect = asset_sub.add_parser("inspect", help="Inspect an asset by asset ID.")
+    asset_inspect.add_argument("asset_id")
+    asset_inspect.add_argument("--json", action="store_true", help="Accepted for agent-friendly command symmetry.")
+    asset_inspect.set_defaults(func=cmd_asset_inspect)
 
     return parser
 

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .protocol import ASSETS_ROOT, PROTOCOL_VERSION, AssetRef, asset_ref_to_path
+from .protocol import ASSETS_ROOT, PROTOCOL_VERSION, AssetRef, asset_ref_to_path, asset_uri_to_path
 
 
 RUNS_ROOT = Path(".lego") / "runs"
@@ -128,6 +128,37 @@ def upsert_asset_index_entries(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(index, indent=2, sort_keys=True), encoding="utf-8")
     return index
+
+
+def list_assets(
+    *,
+    asset_type: Optional[str] = None,
+    target: Optional[str] = None,
+    limit: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    assets = list(read_asset_index().get("assets", []))
+    if asset_type is not None:
+        assets = [asset for asset in assets if asset.get("type") == asset_type]
+    if target is not None:
+        assets = [asset for asset in assets if asset.get("target") == target]
+    if limit is not None:
+        assets = assets[:limit]
+    return assets
+
+
+def read_asset(asset_id: str) -> Dict[str, Any]:
+    for asset_ref in read_asset_index().get("assets", []):
+        if asset_ref.get("asset_id") != asset_id:
+            continue
+        asset_path = asset_uri_to_path(asset_ref["uri"], assets_root=ASSETS_ROOT)
+        if not asset_path.exists():
+            raise FileNotFoundError(f"Asset file is missing for '{asset_id}'.")
+        return {
+            "asset": json.loads(asset_path.read_text(encoding="utf-8")),
+            "asset_ref": asset_ref,
+            "asset_path": str(asset_path),
+        }
+    raise FileNotFoundError(f"No asset found for '{asset_id}'.")
 
 
 def normalize_outputs_for_protocol(outputs: Dict[str, Any]) -> Dict[str, Any]:
