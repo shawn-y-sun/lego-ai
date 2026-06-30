@@ -51,7 +51,10 @@ def latest_run_id() -> str:
         if value:
             return value
 
-    manifests = sorted(RUNS_ROOT.glob("*/manifest.json"), key=lambda p: p.stat().st_mtime)
+    manifests = sorted(
+        RUNS_ROOT.glob("*/manifest.json"),
+        key=lambda p: (p.stat().st_mtime_ns, p.parent.name),
+    )
     if not manifests:
         raise FileNotFoundError("No Mindstorms runs found.")
     return manifests[-1].parent.name
@@ -60,7 +63,7 @@ def latest_run_id() -> str:
 def list_runs(limit: Optional[int] = None) -> List[Dict[str, Any]]:
     manifests = sorted(
         RUNS_ROOT.glob("*/manifest.json"),
-        key=lambda p: p.stat().st_mtime,
+        key=lambda p: (p.stat().st_mtime_ns, p.parent.name),
         reverse=True,
     )
     if limit is not None:
