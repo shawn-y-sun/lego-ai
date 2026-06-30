@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,8 @@ from Mindstorms.protocol import (
     WarningRecord,
     asset_ref_to_path,
     asset_uri_to_path,
+    format_protocol_timestamp,
+    parse_protocol_timestamp,
 )
 
 
@@ -140,3 +143,26 @@ def test_warning_error_and_run_records_serialize_to_protocol_shape():
             "message": "The model chart could not be written.",
         }
     ]
+
+
+def test_parse_protocol_timestamp_requires_timezone_context():
+    parsed = parse_protocol_timestamp("2026-06-30T14:23:00Z")
+
+    assert parsed.tzinfo is timezone.utc
+    assert parsed.isoformat() == "2026-06-30T14:23:00+00:00"
+
+    with pytest.raises(ValueError):
+        parse_protocol_timestamp("2026-06-30T14:23:00")
+
+
+def test_format_protocol_timestamp_converts_for_human_display():
+    eastern = timezone(timedelta(hours=-4), "America/Toronto")
+
+    assert (
+        format_protocol_timestamp("2026-06-30T14:23:00Z", tz=eastern)
+        == "2026-06-30 10:23 AM America/Toronto"
+    )
+    assert (
+        format_protocol_timestamp("2026-06-01T12:05:00Z", tz=eastern)
+        == "2026-06-01 8:05 AM America/Toronto"
+    )

@@ -447,6 +447,35 @@ Design rule:
 > ArtifactRefs point from assets or runs to concrete backend files and
 > directories.
 
+### Timestamp Policy
+
+Protocol timestamps should be stored as UTC ISO-8601 strings with a `Z` suffix.
+This keeps run manifests and asset JSON stable across agents, CI, servers, and
+team members in different North American time zones.
+
+Human-facing surfaces should convert protocol timestamps to the viewer's local
+or selected project time zone. CLI, Studio, and reports may display a local
+time zone label, but should not replace the stable UTC protocol value.
+
+Example:
+
+```json
+{
+  "created_at": "2026-06-30T14:23:00Z",
+  "initiator": {
+    "type": "agent",
+    "name": "codex",
+    "timezone": "America/Toronto"
+  }
+}
+```
+
+Possible human-facing display:
+
+```text
+2026-06-30 10:23 AM America/Toronto
+```
+
 ### ProjectContext
 
 ```json

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, tzinfo, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
@@ -194,3 +195,27 @@ def asset_uri_to_path(uri: str, assets_root: Path = ASSETS_ROOT) -> Path:
 
 def asset_ref_to_path(asset_ref: AssetRef, assets_root: Path = ASSETS_ROOT) -> Path:
     return asset_uri_to_path(asset_ref.uri, assets_root=assets_root)
+
+
+def parse_protocol_timestamp(value: str) -> datetime:
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        raise ValueError("Protocol timestamps must include timezone context.")
+    return parsed.astimezone(timezone.utc)
+
+
+def format_protocol_timestamp(
+    value: str,
+    *,
+    tz: Optional[tzinfo] = None,
+    timezone_label: Optional[str] = None,
+) -> str:
+    display_tz = tz if tz is not None else datetime.now().astimezone().tzinfo
+    localized = parse_protocol_timestamp(value).astimezone(display_tz)
+    label = timezone_label or localized.tzname() or str(localized.tzinfo)
+    date_text = localized.strftime("%Y-%m-%d")
+    time_text = localized.strftime("%I:%M %p").lstrip("0")
+    time_text = time_text if time_text else "0"
+    time_text = f"{date_text} {time_text}"
+    return f"{time_text} {label}"
