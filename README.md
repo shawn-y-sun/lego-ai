@@ -136,6 +136,22 @@ pip install -r requirements.txt
 
 The demo notebooks (`DEMO_1` through `DEMO_4`) demonstrate the full pipeline. Below is a concise version following the core phases.
 
+### Mindstorms CLI MVP
+
+`Mindstorms` is the local agent-facing control layer for Project LEGO. It wraps the existing
+`Technic` modeling engine with parseable CLI commands and run manifests under `.lego/runs/`.
+
+```bash
+python -m Mindstorms.cli demo init --json
+python -m Mindstorms.cli demo fit-single --vars USMORT30Y --json
+python -m Mindstorms.cli demo search --top-n 5 --max-var-num 2 --max-lag 1 --json
+python -m Mindstorms.cli runs list --json
+python -m Mindstorms.cli run inspect latest --json
+```
+
+The search command intentionally defaults to a tiny demo driver pool so coding agents can prove
+the end-to-end workflow before attempting a larger exhaustive search.
+
 ```python
 import pandas as pd
 import Technic as tc
