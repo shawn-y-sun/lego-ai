@@ -1100,14 +1100,12 @@ agents, and what input flags it accepts.
 
 ## Future Implementation Slices
 
-1. Add protocol dataclasses or typed dictionaries for `Run`, `Asset`,
-   `AssetRef`, `ArtifactRef`, `WarningRecord`, and `ErrorRecord`.
-2. Update Mindstorms run manifests to emit `protocol_version`, `workflow_id`,
-   `outputs.summary`, `outputs.assets`, and `outputs.diagnostics`.
-3. Add a compatibility reader that maps current manifests to v0.1 shape.
-4. Add standalone asset JSON writing for current demo fit/search
-   `CandidateModel` outputs.
-5. Add a minimal file-based asset index for cross-run asset lookup.
-6. Add `SearchPool` and `EvaluationResult` asset writing for the modeling loop.
-7. Add recipe proposal/build feature design prototypes before implementing full
+1. Add a compatibility reader that maps pre-v0.1 manifests to v0.1 shape.
+2. Add richer `CandidateModel` asset conversion from current demo fit/search
+   outputs, including stable artifact references when available.
+3. Add a minimal file-based asset index for cross-run asset lookup.
+4. Add `SearchPool` and `EvaluationResult` asset writing for the modeling loop.
+5. Add a transition plan for eventually hiding or dropping legacy manifest
+   fields once downstream consumers use v0.1 fields.
+6. Add recipe proposal/build feature design prototypes before implementing full
    natural-language feature engineering.

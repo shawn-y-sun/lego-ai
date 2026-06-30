@@ -9,8 +9,10 @@ from Mindstorms import cli, runs
 @pytest.fixture()
 def isolated_runs_root(tmp_path, monkeypatch):
     runs_root = tmp_path / ".lego" / "runs"
+    assets_root = tmp_path / ".lego" / "assets"
     monkeypatch.setattr(runs, "RUNS_ROOT", runs_root)
     monkeypatch.setattr(runs, "LATEST_FILE", runs_root / "latest")
+    monkeypatch.setattr(runs, "ASSETS_ROOT", assets_root)
     return runs_root
 
 
@@ -75,7 +77,14 @@ def test_cli_demo_search_smoke_parser_path(monkeypatch, isolated_runs_root, caps
     assert payload["run"]["inputs"]["filter_profile"] == "relaxed_demo_smoke"
     assert payload["run"]["outputs"]["selected_count"] == 1
     assert payload["run"]["outputs"]["summary"]["selected_count"] == 1
-    assert payload["run"]["outputs"]["assets"] == []
+    assert payload["run"]["outputs"]["assets"] == [
+        {
+            "asset_id": "candidate_model:home_price_GR1:cm1",
+            "type": "candidate_model",
+            "role": "selected_model",
+            "uri": "asset://candidate_model/home_price_GR1/cm1.json",
+        }
+    ]
     assert payload["run"]["outputs"]["diagnostics"] == {}
 
 

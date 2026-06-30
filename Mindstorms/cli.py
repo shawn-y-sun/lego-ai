@@ -15,6 +15,7 @@ from .runs import (
     new_run_id,
     normalize_outputs_for_protocol,
     read_manifest,
+    write_candidate_model_assets,
     write_manifest,
 )
 from .warnings import summarize_warning_text
@@ -55,12 +56,13 @@ def _run_quietly(func: Callable[[], Dict[str, Any]], *, verbose: bool) -> Dict[s
 
 def _complete_manifest(manifest: Dict[str, Any], outputs: Dict[str, Any]) -> Dict[str, Any]:
     manifest["status"] = "succeeded"
-    manifest["outputs"] = normalize_outputs_for_protocol(outputs)
     manifest["warnings"] = outputs.get("warnings", [])
     manifest["errors"] = []
     from .runs import utc_timestamp
 
     manifest["completed_at"] = utc_timestamp()
+    normalized_outputs = normalize_outputs_for_protocol(outputs)
+    manifest["outputs"] = write_candidate_model_assets(manifest, normalized_outputs)
     return manifest
 
 

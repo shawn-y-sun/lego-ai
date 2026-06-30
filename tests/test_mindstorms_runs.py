@@ -8,8 +8,10 @@ from Mindstorms import runs
 @pytest.fixture()
 def isolated_runs_root(tmp_path, monkeypatch):
     runs_root = tmp_path / ".lego" / "runs"
+    assets_root = tmp_path / ".lego" / "assets"
     monkeypatch.setattr(runs, "RUNS_ROOT", runs_root)
     monkeypatch.setattr(runs, "LATEST_FILE", runs_root / "latest")
+    monkeypatch.setattr(runs, "ASSETS_ROOT", assets_root)
     return runs_root
 
 
@@ -96,3 +98,52 @@ def test_outputs_are_normalized_for_v0_1_without_removing_legacy_fields():
         "captured_stdout": "hello",
         "captured_stderr": "warn",
     }
+
+
+def test_candidate_model_assets_are_written_and_referenced(isolated_runs_root):
+    manifest = runs.base_manifest(
+        run_id="search_001",
+        workflow="demo_housing_search",
+        segment_id="home_price_GR1",
+        target="home_price_GR1",
+        inputs={},
+    )
+    manifest["completed_at"] = "2026-06-30T14:23:00Z"
+    outputs = runs.normalize_outputs_for_protocol(
+        {
+            "target": "home_price_GR1",
+            "selected_models": [
+                {
+                    "model_id": "cm1",
+                    "formula": "home_price_GR1 ~ USMORT30Y",
+                    "specs": ["USMORT30Y"],
+                    "metrics": {"rsquared": 0.82},
+                }
+            ],
+        }
+    )
+
+    updated = runs.write_candidate_model_assets(manifest, outputs)
+
+    assert updated["selected_models"][0]["model_id"] == "cm1"
+    assert updated["assets"] == [
+        {
+            "asset_id": "candidate_model:home_price_GR1:cm1",
+            "type": "candidate_model",
+            "role": "selected_model",
+            "uri": "asset://candidate_model/home_price_GR1/cm1.json",
+        }
+    ]
+
+    asset_path = isolated_runs_root.parent / "assets" / "candidate_model" / "home_price_GR1" / "cm1.json"
+    payload = json.loads(asset_path.read_text(encoding="utf-8"))
+    assert payload["protocol_version"] == "0.1"
+    assert payload["asset_id"] == "candidate_model:home_price_GR1:cm1"
+    assert payload["type"] == "candidate_model"
+    assert payload["created_at"] == "2026-06-30T14:23:00Z"
+    assert payload["created_by_run_id"] == "search_001"
+    assert payload["source_run_id"] == "search_001"
+    assert payload["target"] == "home_price_GR1"
+    assert payload["formula"] == "home_price_GR1 ~ USMORT30Y"
+    assert payload["specs"] == ["USMORT30Y"]
+    assert payload["metrics"] == {"rsquared": 0.82}

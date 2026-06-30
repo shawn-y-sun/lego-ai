@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .protocol import PROTOCOL_VERSION
+from .protocol import ASSETS_ROOT, PROTOCOL_VERSION, AssetRef, asset_ref_to_path
 
 
 RUNS_ROOT = Path(".lego") / "runs"
 LATEST_FILE = RUNS_ROOT / "latest"
+_SAFE_ASSET_SEGMENT_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
 def utc_timestamp() -> str:
@@ -117,6 +119,64 @@ def normalize_outputs_for_protocol(outputs: Dict[str, Any]) -> Dict[str, Any]:
     normalized["summary"] = summary
     normalized["assets"] = assets
     normalized["diagnostics"] = diagnostics
+    return normalized
+
+
+def _asset_path_segment(value: Any) -> str:
+    segment = _SAFE_ASSET_SEGMENT_RE.sub("_", str(value).strip()).strip("._")
+    if not segment:
+        raise ValueError("Asset path segment cannot be empty.")
+    return segment
+
+
+def write_candidate_model_assets(
+    manifest: Dict[str, Any],
+    outputs: Dict[str, Any],
+) -> Dict[str, Any]:
+    selected_models = outputs.get("selected_models") or []
+    if not selected_models:
+        return outputs
+
+    normalized = normalize_outputs_for_protocol(outputs)
+    target = normalized.get("target") or manifest.get("target") or "unknown_target"
+    target_segment = _asset_path_segment(target)
+    created_at = manifest.get("completed_at") or utc_timestamp()
+    existing_refs = list(normalized.get("assets") or [])
+
+    for index, candidate in enumerate(selected_models, start=1):
+        model_id = candidate.get("model_id") or f"candidate_{index:03d}"
+        model_segment = _asset_path_segment(model_id)
+        asset_id = f"candidate_model:{target}:{model_id}"
+        asset_ref = AssetRef(
+            asset_id=asset_id,
+            type="candidate_model",
+            role="selected_model",
+            uri=f"asset://candidate_model/{target_segment}/{model_segment}.json",
+        )
+        asset_payload = {
+            "protocol_version": PROTOCOL_VERSION,
+            "asset_id": asset_id,
+            "type": "candidate_model",
+            "created_at": created_at,
+            "created_by_run_id": manifest["run_id"],
+            "source_asset_ids": [],
+            "artifact_refs": [],
+            "source_run_id": manifest["run_id"],
+            "target": target,
+            "model_id": model_id,
+            "formula": candidate.get("formula"),
+            "specs": candidate.get("specs", []),
+            "metrics": candidate.get("metrics", {}),
+        }
+        asset_path = asset_ref_to_path(asset_ref, assets_root=ASSETS_ROOT)
+        asset_path.parent.mkdir(parents=True, exist_ok=True)
+        asset_path.write_text(
+            json.dumps(asset_payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        existing_refs.append(asset_ref.to_dict())
+
+    normalized["assets"] = existing_refs
     return normalized
 
 
