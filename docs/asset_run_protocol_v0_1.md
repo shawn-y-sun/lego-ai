@@ -696,36 +696,86 @@ Recommended proposal lifecycle:
 `build_features` should not mutate a raw DatasetSnapshot. It should produce a
 derived dataset snapshot plus a modeling-facing FeatureSet.
 
+The initial Mindstorms implementation builds features deterministically from a
+`feature_recipe_proposal` asset:
+
+```text
+lego features build --proposal-id feature_recipe_proposal:yield_curve_steepness --source-csv "Demo Data/macro_monthly.csv" --date-column observation_date --output-name macro_monthly_enriched --json
+```
+
+This prototype supports only simple binary arithmetic expressions:
+
+```text
+<column> - <column>
+<column> + <column>
+<column> * <column>
+<column> / <column>
+```
+
+It does not call an LLM, implement a broad formula engine, create SearchPool,
+or change Technic.
+
 ```json
 {
-  "asset_id": "dataset_snapshot:mev:macro_monthly_enriched:20260630",
+  "protocol_version": "0.1",
+  "asset_id": "derived_dataset_snapshot:macro_monthly_enriched:build_features_001",
   "type": "derived_dataset_snapshot",
+  "created_at": "2026-07-01T14:23:00Z",
+  "created_by_run_id": "build_features_001",
   "source_asset_ids": [
-    "dataset_snapshot:mev:macro_monthly:20260630"
+    "feature_recipe_proposal:yield_curve_steepness"
   ],
-  "added_columns": ["USYC10_2", "USMORT30_T10_SPRD"]
+  "artifact_refs": [
+    {
+      "uri": "run://artifacts/macro_monthly_enriched.csv",
+      "role": "derived_dataset_csv",
+      "media_type": "text/csv"
+    }
+  ],
+  "source_run_id": "build_features_001",
+  "name": "macro_monthly_enriched",
+  "source_ref": {
+    "uri": "repo://Demo Data/macro_monthly.csv"
+  },
+  "time_index": "observation_date",
+  "added_columns": ["USYC10_2"],
+  "row_count": 3,
+  "column_count": 4
 }
 ```
 
 ```json
 {
-  "asset_id": "feature_set:macro_yield_spreads:v1",
+  "protocol_version": "0.1",
+  "asset_id": "feature_set:macro_monthly_enriched:build_features_001",
   "type": "feature_set",
+  "created_at": "2026-07-01T14:23:00Z",
+  "created_by_run_id": "build_features_001",
   "source_asset_ids": [
-    "dataset_snapshot:mev:macro_monthly_enriched:20260630"
+    "feature_recipe_proposal:yield_curve_steepness",
+    "derived_dataset_snapshot:macro_monthly_enriched:build_features_001"
   ],
+  "artifact_refs": [],
+  "source_run_id": "build_features_001",
+  "name": "macro_monthly_enriched",
   "features": [
     {
       "name": "USYC10_2",
+      "recipe_kind": "arithmetic",
       "expression": "USGOV10Y - USGOV2Y",
       "expression_language": "lego_formula_v0",
       "source_columns": ["USGOV10Y", "USGOV2Y"],
       "category": "yield_slope",
-      "description": "10-year Treasury yield less 2-year Treasury yield.",
       "allowed_for_search": true
     }
   ]
 }
+```
+
+Derived CSV artifacts are written under the run directory:
+
+```text
+.lego/runs/<run_id>/artifacts/<output_name>.csv
 ```
 
 ### ModelingFrame

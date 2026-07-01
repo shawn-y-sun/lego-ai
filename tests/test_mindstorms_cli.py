@@ -1,5 +1,6 @@
 import json
 
+import pandas as pd
 import pytest
 
 from Mindstorms import __version__
@@ -55,6 +56,8 @@ def test_cli_help_json_catalog_highlights_pilot_path(capsys):
     assert commands["demo search"]["safe_for_pilot"] is False
     assert commands["recipe propose"]["safe_for_pilot"] is True
     assert "feature recipe proposal" in commands["recipe propose"]["purpose"]
+    assert commands["features build"]["safe_for_pilot"] is True
+    assert "deterministic feature outputs" in commands["features build"]["purpose"]
 
 
 def test_cli_demo_search_smoke_parser_path(monkeypatch, isolated_runs_root, capsys):
@@ -410,3 +413,194 @@ def test_cli_recipe_propose_writes_manifest_asset_and_index(isolated_runs_root, 
             "status": "proposed",
         }
     ]
+
+
+def test_cli_features_build_writes_artifact_assets_and_index(isolated_runs_root, tmp_path, capsys):
+    assert (
+        cli.main(
+            [
+                "recipe",
+                "propose",
+                "--request",
+                "Create variables that capture yield curve steepness.",
+                "--name",
+                "USYC10_2",
+                "--expression",
+                "USGOV10Y - USGOV2Y",
+                "--source-columns",
+                "USGOV10Y",
+                "USGOV2Y",
+                "--category",
+                "yield_slope",
+                "--slug",
+                "yield_curve_steepness",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    source_csv = tmp_path / "macro_monthly.csv"
+    pd.DataFrame(
+        {
+            "observation_date": ["2026-01-31", "2026-02-28", "2026-03-31"],
+            "USGOV10Y": [5.0, 4.5, 4.0],
+            "USGOV2Y": [3.0, 3.5, 3.25],
+        }
+    ).to_csv(source_csv, index=False)
+
+    assert (
+        cli.main(
+            [
+                "features",
+                "build",
+                "--proposal-id",
+                "feature_recipe_proposal:yield_curve_steepness",
+                "--source-csv",
+                str(source_csv),
+                "--date-column",
+                "observation_date",
+                "--output-name",
+                "macro_monthly_enriched",
+                "--json",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    run_id = payload["run"]["run_id"]
+    derived_id = f"derived_dataset_snapshot:macro_monthly_enriched:{run_id}"
+    feature_set_id = f"feature_set:macro_monthly_enriched:{run_id}"
+    assert payload["ok"] is True
+    assert payload["run"]["workflow_id"] == "build_features"
+    assert payload["run"]["outputs"]["summary"] == {
+        "status": "built",
+        "output_name": "macro_monthly_enriched",
+        "added_columns": ["USYC10_2"],
+        "row_count": 3,
+        "derived_dataset_asset_id": derived_id,
+        "feature_set_asset_id": feature_set_id,
+    }
+    assert payload["run"]["outputs"]["assets"] == [
+        {
+            "asset_id": derived_id,
+            "type": "derived_dataset_snapshot",
+            "role": "derived_dataset",
+            "uri": f"asset://derived_dataset_snapshot/macro_monthly_enriched/{run_id}.json",
+        },
+        {
+            "asset_id": feature_set_id,
+            "type": "feature_set",
+            "role": "feature_set",
+            "uri": f"asset://feature_set/macro_monthly_enriched/{run_id}.json",
+        },
+    ]
+
+    artifact_path = isolated_runs_root / run_id / "artifacts" / "macro_monthly_enriched.csv"
+    artifact = pd.read_csv(artifact_path)
+    assert artifact["USYC10_2"].tolist() == [2.0, 1.0, 0.75]
+
+    assert cli.main(["asset", "inspect", derived_id, "--json"]) == 0
+    derived_payload = json.loads(capsys.readouterr().out)
+    assert derived_payload["asset"]["row_count"] == 3
+    assert derived_payload["asset"]["column_count"] == 4
+    assert derived_payload["asset"]["added_columns"] == ["USYC10_2"]
+    assert derived_payload["asset"]["artifact_refs"] == [
+        {
+            "uri": "run://artifacts/macro_monthly_enriched.csv",
+            "role": "derived_dataset_csv",
+            "media_type": "text/csv",
+        }
+    ]
+
+    assert cli.main(["asset", "inspect", feature_set_id, "--json"]) == 0
+    feature_set_payload = json.loads(capsys.readouterr().out)
+    assert feature_set_payload["asset"]["features"] == [
+        {
+            "name": "USYC10_2",
+            "recipe_kind": "arithmetic",
+            "expression": "USGOV10Y - USGOV2Y",
+            "expression_language": "lego_formula_v0",
+            "source_columns": ["USGOV10Y", "USGOV2Y"],
+            "category": "yield_slope",
+            "allowed_for_search": True,
+        }
+    ]
+
+    assert cli.main(["assets", "list", "--type", "feature_set", "--json"]) == 0
+    list_payload = json.loads(capsys.readouterr().out)
+    assert list_payload["assets"] == [
+        {
+            "asset_id": feature_set_id,
+            "type": "feature_set",
+            "uri": f"asset://feature_set/macro_monthly_enriched/{run_id}.json",
+            "created_at": payload["run"]["completed_at"],
+            "created_by_run_id": run_id,
+            "source_run_id": run_id,
+            "name": "macro_monthly_enriched",
+        }
+    ]
+
+
+def test_cli_features_build_fails_cleanly_for_unsupported_expression(isolated_runs_root, tmp_path, capsys):
+    assert (
+        cli.main(
+            [
+                "recipe",
+                "propose",
+                "--request",
+                "Create a multi-term spread.",
+                "--name",
+                "BAD_EXPR",
+                "--expression",
+                "USGOV10Y - USGOV2Y + USGOV3M",
+                "--source-columns",
+                "USGOV10Y",
+                "USGOV2Y",
+                "USGOV3M",
+                "--category",
+                "yield_slope",
+                "--slug",
+                "bad_expression",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    source_csv = tmp_path / "macro_monthly.csv"
+    pd.DataFrame(
+        {
+            "observation_date": ["2026-01-31"],
+            "USGOV10Y": [5.0],
+            "USGOV2Y": [3.0],
+            "USGOV3M": [2.0],
+        }
+    ).to_csv(source_csv, index=False)
+
+    assert (
+        cli.main(
+            [
+                "features",
+                "build",
+                "--proposal-id",
+                "feature_recipe_proposal:bad_expression",
+                "--source-csv",
+                str(source_csv),
+                "--date-column",
+                "observation_date",
+                "--output-name",
+                "bad_output",
+                "--json",
+            ]
+        )
+        == 1
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["run"]["status"] == "failed"
+    assert payload["run"]["workflow_id"] == "build_features"
+    assert payload["run"]["errors"][0]["code"] == "WORKFLOW_FAILED"
+    assert "Unsupported expression" in payload["run"]["errors"][0]["message"]

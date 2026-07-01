@@ -38,6 +38,10 @@ def _manifest_path(run_id: str) -> Path:
     return _run_dir(run_id) / "manifest.json"
 
 
+def run_artifacts_dir(run_id: str) -> Path:
+    return _run_dir(run_id) / "artifacts"
+
+
 def write_manifest(manifest: Dict[str, Any]) -> Path:
     global _LAST_MANIFEST_MTIME_NS
 

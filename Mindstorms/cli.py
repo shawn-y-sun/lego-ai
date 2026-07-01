@@ -5,10 +5,12 @@ import json
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
+from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Sequence
 
 from . import __version__
 from .assets import list_assets, read_asset
+from .features import build_features_from_proposal
 from .recipes import (
     build_proposed_recipe,
     recipe_proposal_slug,
@@ -21,6 +23,7 @@ from .runs import (
     new_run_id,
     normalize_outputs_for_protocol,
     read_manifest,
+    run_artifacts_dir,
     search_config_from_inputs,
     write_candidate_model_assets,
     write_evaluation_result_asset,
@@ -132,6 +135,12 @@ def command_catalog() -> Dict[str, Any]:
                 "name": "recipe propose",
                 "purpose": "Create a deterministic feature recipe proposal asset from explicit inputs.",
                 "example": 'lego recipe propose --request "Create yield slope" --name USYC10_2 --expression "USGOV10Y - USGOV2Y" --source-columns USGOV10Y USGOV2Y --json',
+                "safe_for_pilot": True,
+            },
+            {
+                "name": "features build",
+                "purpose": "Build deterministic feature outputs from a feature recipe proposal asset.",
+                "example": "lego features build --proposal-id feature_recipe_proposal:yield_curve_steepness --source-csv \"Demo Data/macro_monthly.csv\" --date-column observation_date --output-name macro_monthly_enriched --json",
                 "safe_for_pilot": True,
             },
         ]
@@ -389,6 +398,48 @@ def cmd_recipe_propose(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_features_build(args: argparse.Namespace) -> int:
+    run_id = new_run_id("build_features")
+    inputs = {
+        "proposal_id": args.proposal_id,
+        "source_csv": str(args.source_csv),
+        "date_column": args.date_column,
+        "output_name": args.output_name,
+    }
+    manifest = base_manifest(
+        run_id=run_id,
+        workflow="build_features",
+        segment_id=args.output_name,
+        target=args.output_name,
+        inputs=inputs,
+    )
+    try:
+        from .runs import utc_timestamp
+
+        manifest["status"] = "succeeded"
+        manifest["warnings"] = []
+        manifest["errors"] = []
+        manifest["completed_at"] = utc_timestamp()
+        manifest["outputs"] = build_features_from_proposal(
+            manifest=manifest,
+            proposal_id=args.proposal_id,
+            source_csv=Path(args.source_csv),
+            date_column=args.date_column,
+            output_name=args.output_name,
+            artifacts_dir=run_artifacts_dir(run_id),
+        )
+        path = write_manifest(manifest)
+        emit_json({"ok": True, "manifest_path": str(path), "run": manifest})
+        return 0
+    except Exception as exc:
+        manifest = fail_manifest(manifest, exc)
+        if getattr(args, "debug", False):
+            manifest["traceback"] = traceback.format_exc()
+        path = write_manifest(manifest)
+        emit_json({"ok": False, "manifest_path": str(path), "run": manifest})
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m Mindstorms.cli")
     parser.add_argument("--version", action="version", version=f"Mindstorms {__version__}")
@@ -479,6 +530,17 @@ def build_parser() -> argparse.ArgumentParser:
     propose.add_argument("--json", action="store_true", help="Accepted for agent-friendly command symmetry.")
     propose.add_argument("--debug", action="store_true")
     propose.set_defaults(func=cmd_recipe_propose)
+
+    features = sub.add_parser("features", help="Build deterministic feature artifacts.")
+    features_sub = features.add_subparsers(dest="features_command", required=True)
+    build = features_sub.add_parser("build", help="Build features from a proposal asset.")
+    build.add_argument("--proposal-id", required=True)
+    build.add_argument("--source-csv", required=True)
+    build.add_argument("--date-column")
+    build.add_argument("--output-name", required=True)
+    build.add_argument("--json", action="store_true", help="Accepted for agent-friendly command symmetry.")
+    build.add_argument("--debug", action="store_true")
+    build.set_defaults(func=cmd_features_build)
 
     return parser
 
