@@ -60,6 +60,7 @@ def test_cli_demo_search_smoke_parser_path(monkeypatch, isolated_runs_root, caps
             "segment_id": "home_price_GR1",
             "target": "home_price_GR1",
             "search_id": search_id,
+            "artifacts_dir": "C:\\Users\\shawn\\Project\\LEGO_AI\\Segment\\home_price_GR1\\cms\\fake_search",
             "selected_models": [{"model_id": "cm1"}],
             "selected_count": 1,
             "zero_selected_is_valid": True,
@@ -107,6 +108,25 @@ def test_cli_demo_search_smoke_parser_path(monkeypatch, isolated_runs_root, caps
     ]
     assert payload["run"]["outputs"]["diagnostics"] == {}
     assert all(asset["type"] != "search_pool" for asset in payload["run"]["outputs"]["assets"])
+
+    asset_id = "candidate_model:home_price_GR1:cm1"
+    assert cli.main(["asset", "inspect", asset_id, "--json"]) == 0
+    inspect_payload = json.loads(capsys.readouterr().out)
+    assert inspect_payload["ok"] is True
+    assert inspect_payload["asset"]["artifact_refs"] == [
+        {
+            "uri": f"technic://Segment/home_price_GR1/cms/{payload['run']['outputs']['search_id']}",
+            "role": "technic_search_directory",
+            "media_type": "application/vnd.lego.technic-search",
+        },
+        {
+            "uri": f"technic://Segment/home_price_GR1/cms/{payload['run']['outputs']['search_id']}/cm1",
+            "role": "technic_candidate_model",
+            "media_type": "application/vnd.lego.technic-candidate",
+        },
+    ]
+    assert all("C:" not in ref["uri"] for ref in inspect_payload["asset"]["artifact_refs"])
+    assert all("\\" not in ref["uri"] for ref in inspect_payload["asset"]["artifact_refs"])
 
 
 def test_cli_demo_search_parser_maps_legacy_inputs_to_search_config(monkeypatch, isolated_runs_root, capsys):

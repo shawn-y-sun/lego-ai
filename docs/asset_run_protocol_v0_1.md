@@ -915,11 +915,34 @@ Design rules:
   "artifact_refs": [
     {
       "uri": "technic://Segment/home_price_GR1/cms/search_20260630_1020/cm17",
+      "role": "technic_candidate_model",
       "media_type": "application/vnd.lego.technic-candidate"
     }
   ]
 }
 ```
+
+When a CandidateModel comes from the current Technic search adapter, v0.1 may
+include both the search directory and candidate-specific backend references:
+
+```json
+[
+  {
+    "uri": "technic://Segment/home_price_GR1/cms/search_20260630_1020",
+    "role": "technic_search_directory",
+    "media_type": "application/vnd.lego.technic-search"
+  },
+  {
+    "uri": "technic://Segment/home_price_GR1/cms/search_20260630_1020/cm17",
+    "role": "technic_candidate_model",
+    "media_type": "application/vnd.lego.technic-candidate"
+  }
+]
+```
+
+The stable URI should be derived from `segment_id`, `search_id`, and
+`model_id`. Machine-local fields such as `outputs.artifacts_dir` can help the
+adapter discover context, but should not be copied into stable `artifact_refs`.
 
 ### EvaluationResult
 
@@ -1142,7 +1165,8 @@ Current `.lego/runs/<run_id>/manifest.json` fields map naturally:
 - `outputs.selected_models` becomes standalone `CandidateModel` asset files,
   referenced from `outputs.assets[]` with `type = candidate_model`.
 - `outputs.selected_count` becomes `outputs.summary.selected_count`.
-- `outputs.artifacts_dir` becomes an `ArtifactRef`.
+- `outputs.artifacts_dir` can be mapped to stable `technic://` `ArtifactRef`
+  URIs; the absolute local path itself should not become the protocol URI.
 - `warnings` keep their current structured shape.
 - `captured_stdout` and `captured_stderr` move under `outputs.diagnostics`.
 

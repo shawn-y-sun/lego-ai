@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .protocol import ASSETS_ROOT, PROTOCOL_VERSION, AssetRef, asset_ref_to_path, asset_uri_to_path
+from .protocol import ASSETS_ROOT, PROTOCOL_VERSION, ArtifactRef, AssetRef, asset_ref_to_path, asset_uri_to_path
 
 
 RUNS_ROOT = Path(".lego") / "runs"
@@ -263,6 +263,32 @@ def _asset_path_segment(value: Any) -> str:
     return segment
 
 
+def candidate_model_artifact_refs(
+    outputs: Dict[str, Any],
+    model_id: str,
+) -> List[Dict[str, Any]]:
+    segment_id = outputs.get("segment_id")
+    search_id = outputs.get("search_id")
+    if not segment_id or not search_id:
+        return []
+
+    segment = _asset_path_segment(segment_id)
+    search = _asset_path_segment(search_id)
+    model = _asset_path_segment(model_id)
+    return [
+        ArtifactRef(
+            uri=f"technic://Segment/{segment}/cms/{search}",
+            role="technic_search_directory",
+            media_type="application/vnd.lego.technic-search",
+        ).to_dict(),
+        ArtifactRef(
+            uri=f"technic://Segment/{segment}/cms/{search}/{model}",
+            role="technic_candidate_model",
+            media_type="application/vnd.lego.technic-candidate",
+        ).to_dict(),
+    ]
+
+
 def write_candidate_model_assets(
     manifest: Dict[str, Any],
     outputs: Dict[str, Any],
@@ -295,7 +321,7 @@ def write_candidate_model_assets(
             "created_at": created_at,
             "created_by_run_id": manifest["run_id"],
             "source_asset_ids": [],
-            "artifact_refs": [],
+            "artifact_refs": candidate_model_artifact_refs(normalized, model_id),
             "source_run_id": manifest["run_id"],
             "target": target,
             "model_id": model_id,

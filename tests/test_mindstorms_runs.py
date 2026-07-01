@@ -300,6 +300,51 @@ def test_candidate_model_assets_are_written_and_referenced(isolated_runs_root):
     }
 
 
+def test_candidate_model_assets_include_stable_search_artifact_refs(isolated_runs_root):
+    manifest = runs.base_manifest(
+        run_id="search_001",
+        workflow="demo_housing_search",
+        segment_id="home_price_GR1",
+        target="home_price_GR1",
+        inputs={},
+    )
+    manifest["completed_at"] = "2026-06-30T14:23:00Z"
+    outputs = runs.normalize_outputs_for_protocol(
+        {
+            "segment_id": "home_price_GR1",
+            "target": "home_price_GR1",
+            "search_id": "search_001",
+            "artifacts_dir": "C:\\Users\\shawn\\Project\\LEGO_AI\\Segment\\home_price_GR1\\cms\\search_001",
+            "selected_models": [
+                {
+                    "model_id": "cm1",
+                    "formula": "home_price_GR1 ~ USMORT30Y",
+                    "specs": ["USMORT30Y"],
+                    "metrics": {"rsquared": 0.82},
+                }
+            ],
+        }
+    )
+
+    runs.write_candidate_model_assets(manifest, outputs)
+
+    payload = runs.read_asset("candidate_model:home_price_GR1:cm1")["asset"]
+    assert payload["artifact_refs"] == [
+        {
+            "uri": "technic://Segment/home_price_GR1/cms/search_001",
+            "role": "technic_search_directory",
+            "media_type": "application/vnd.lego.technic-search",
+        },
+        {
+            "uri": "technic://Segment/home_price_GR1/cms/search_001/cm1",
+            "role": "technic_candidate_model",
+            "media_type": "application/vnd.lego.technic-candidate",
+        },
+    ]
+    assert all("C:" not in ref["uri"] for ref in payload["artifact_refs"])
+    assert all("\\" not in ref["uri"] for ref in payload["artifact_refs"])
+
+
 def test_asset_index_upserts_existing_asset_entries(isolated_runs_root):
     first = {
         "asset_id": "candidate_model:home_price_GR1:cm1",
