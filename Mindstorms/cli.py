@@ -1,3 +1,5 @@
+"""Agent-friendly CLI commands for Mindstorms protocol workflows."""
+
 from __future__ import annotations
 
 import argparse
@@ -14,6 +16,7 @@ from .features import build_features_from_proposal
 from .recipes import (
     build_proposed_recipe,
     recipe_proposal_slug,
+    write_approved_feature_recipe_asset,
     write_feature_recipe_proposal_asset,
 )
 from .runs import (
@@ -138,9 +141,15 @@ def command_catalog() -> Dict[str, Any]:
                 "safe_for_pilot": True,
             },
             {
+                "name": "recipe approve",
+                "purpose": "Create an approved feature recipe asset from a proposal asset.",
+                "example": "lego recipe approve --proposal-id feature_recipe_proposal:yield_curve_steepness --approved-by model_owner --json",
+                "safe_for_pilot": True,
+            },
+            {
                 "name": "features build",
                 "purpose": "Build deterministic feature outputs from a feature recipe proposal asset.",
-                "example": "lego features build --proposal-id feature_recipe_proposal:yield_curve_steepness --source-csv \"Demo Data/macro_monthly.csv\" --date-column observation_date --output-name macro_monthly_enriched --json",
+                "example": "lego features build --recipe-id feature_recipe:yield_curve_steepness --source-csv \"Demo Data/macro_monthly.csv\" --date-column observation_date --output-name macro_monthly_enriched --json",
                 "safe_for_pilot": True,
             },
         ]
@@ -345,6 +354,7 @@ def cmd_asset_inspect(args: argparse.Namespace) -> int:
 
 
 def cmd_recipe_propose(args: argparse.Namespace) -> int:
+    """Create a deterministic FeatureRecipeProposal run and asset."""
     run_id = new_run_id("recipe_proposal")
     available_columns = list(args.available_columns or args.source_columns)
     proposed_recipe = build_proposed_recipe(
@@ -398,10 +408,56 @@ def cmd_recipe_propose(args: argparse.Namespace) -> int:
         return 1
 
 
-def cmd_features_build(args: argparse.Namespace) -> int:
-    run_id = new_run_id("build_features")
+def cmd_recipe_approve(args: argparse.Namespace) -> int:
+    """Create an approved FeatureRecipe asset without mutating its proposal."""
+    run_id = new_run_id("approve_feature_recipe")
     inputs = {
         "proposal_id": args.proposal_id,
+        "approved_by": args.approved_by,
+        "approval_rationale": args.rationale,
+        "slug": args.slug,
+    }
+    manifest = base_manifest(
+        run_id=run_id,
+        workflow="approve_feature_recipe",
+        segment_id="feature_recipes",
+        target="feature_recipes",
+        inputs=inputs,
+    )
+    try:
+        from .runs import utc_timestamp
+
+        manifest["status"] = "succeeded"
+        manifest["warnings"] = []
+        manifest["errors"] = []
+        manifest["completed_at"] = utc_timestamp()
+        manifest["outputs"] = write_approved_feature_recipe_asset(
+            manifest,
+            {"assets": []},
+            proposal_id=args.proposal_id,
+            approved_by=args.approved_by,
+            approval_rationale=args.rationale,
+            slug=args.slug,
+        )
+        path = write_manifest(manifest)
+        emit_json({"ok": True, "manifest_path": str(path), "run": manifest})
+        return 0
+    except Exception as exc:
+        manifest = fail_manifest(manifest, exc)
+        if getattr(args, "debug", False):
+            manifest["traceback"] = traceback.format_exc()
+        path = write_manifest(manifest)
+        emit_json({"ok": False, "manifest_path": str(path), "run": manifest})
+        return 1
+
+
+def cmd_features_build(args: argparse.Namespace) -> int:
+    """Build deterministic feature artifacts from a proposal or approved recipe."""
+    run_id = new_run_id("build_features")
+    source_asset_id = args.recipe_id or args.proposal_id
+    inputs = {
+        "proposal_id": args.proposal_id,
+        "recipe_id": args.recipe_id,
         "source_csv": str(args.source_csv),
         "date_column": args.date_column,
         "output_name": args.output_name,
@@ -422,7 +478,7 @@ def cmd_features_build(args: argparse.Namespace) -> int:
         manifest["completed_at"] = utc_timestamp()
         manifest["outputs"] = build_features_from_proposal(
             manifest=manifest,
-            proposal_id=args.proposal_id,
+            proposal_id=source_asset_id,
             source_csv=Path(args.source_csv),
             date_column=args.date_column,
             output_name=args.output_name,
@@ -531,10 +587,21 @@ def build_parser() -> argparse.ArgumentParser:
     propose.add_argument("--debug", action="store_true")
     propose.set_defaults(func=cmd_recipe_propose)
 
+    approve = recipe_sub.add_parser("approve", help="Create an approved feature recipe from a proposal.")
+    approve.add_argument("--proposal-id", required=True)
+    approve.add_argument("--approved-by")
+    approve.add_argument("--rationale")
+    approve.add_argument("--slug")
+    approve.add_argument("--json", action="store_true", help="Accepted for agent-friendly command symmetry.")
+    approve.add_argument("--debug", action="store_true")
+    approve.set_defaults(func=cmd_recipe_approve)
+
     features = sub.add_parser("features", help="Build deterministic feature artifacts.")
     features_sub = features.add_subparsers(dest="features_command", required=True)
     build = features_sub.add_parser("build", help="Build features from a proposal asset.")
-    build.add_argument("--proposal-id", required=True)
+    source_group = build.add_mutually_exclusive_group(required=True)
+    source_group.add_argument("--proposal-id")
+    source_group.add_argument("--recipe-id")
     build.add_argument("--source-csv", required=True)
     build.add_argument("--date-column")
     build.add_argument("--output-name", required=True)

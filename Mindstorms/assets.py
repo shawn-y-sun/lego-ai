@@ -1,3 +1,10 @@
+"""Protocol asset storage seam for local JSON assets.
+
+This module owns file paths, JSON persistence, asset index maintenance, and
+lookup. Workflow code should build semantic asset payloads and leave storage
+mechanics here.
+"""
+
 from __future__ import annotations
 
 import json
@@ -25,6 +32,7 @@ def asset_path_segment(value: Any) -> str:
 
 
 def write_asset_json(asset_ref: AssetRef, payload: Dict[str, Any]) -> Path:
+    """Write one durable asset JSON file at the path described by its AssetRef."""
     path = asset_ref_to_path(asset_ref, assets_root=ASSETS_ROOT)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
@@ -32,6 +40,7 @@ def write_asset_json(asset_ref: AssetRef, payload: Dict[str, Any]) -> Path:
 
 
 def read_asset_index() -> Dict[str, Any]:
+    """Return the optional asset index, or an empty v0.1 index when absent."""
     path = asset_index_path()
     if not path.exists():
         return {"protocol_version": PROTOCOL_VERSION, "assets": []}
@@ -39,6 +48,7 @@ def read_asset_index() -> Dict[str, Any]:
 
 
 def upsert_asset_index_entries(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Insert or replace index entries by stable asset_id."""
     index = read_asset_index()
     by_id = {
         entry["asset_id"]: entry
@@ -82,6 +92,7 @@ def list_assets(
 
 
 def read_asset(asset_id: str) -> Dict[str, Any]:
+    """Resolve an indexed AssetRef and return its JSON payload plus lookup metadata."""
     for asset_ref in read_asset_index().get("assets", []):
         if asset_ref.get("asset_id") != asset_id:
             continue

@@ -683,6 +683,48 @@ The command writes a `propose_feature_recipes` run manifest and one
 `feature_recipe_proposal` asset. It does not call an LLM, materialize features,
 create a `FeatureSet`, or create a `DerivedDatasetSnapshot`.
 
+Approved FeatureRecipe assets are created from proposal assets without mutating
+the proposal:
+
+```text
+lego recipe approve --proposal-id feature_recipe_proposal:yield_curve_steepness --approved-by model_owner --json
+```
+
+Example approved recipe asset:
+
+```json
+{
+  "protocol_version": "0.1",
+  "asset_id": "feature_recipe:yield_curve_steepness",
+  "type": "feature_recipe",
+  "created_at": "2026-07-01T14:23:00Z",
+  "created_by_run_id": "approve_feature_recipe_001",
+  "source_asset_ids": [
+    "feature_recipe_proposal:yield_curve_steepness"
+  ],
+  "artifact_refs": [],
+  "source_run_id": "approve_feature_recipe_001",
+  "status": "approved",
+  "scope": "project",
+  "request": "Create variables that capture yield curve steepness.",
+  "approved_by": {
+    "name": "model_owner"
+  },
+  "approval_rationale": "Looks reasonable for deterministic prototype.",
+  "recipes": [
+    {
+      "name": "USYC10_2",
+      "recipe_kind": "arithmetic",
+      "expression": "USGOV10Y - USGOV2Y",
+      "expression_language": "lego_formula_v0",
+      "source_columns": ["USGOV10Y", "USGOV2Y"],
+      "category": "yield_slope",
+      "rationale": "Classic 10Y-2Y slope."
+    }
+  ]
+}
+```
+
 Recommended proposal lifecycle:
 
 - `proposed`
@@ -697,10 +739,11 @@ Recommended proposal lifecycle:
 derived dataset snapshot plus a modeling-facing FeatureSet.
 
 The initial Mindstorms implementation builds features deterministically from a
-`feature_recipe_proposal` asset:
+`feature_recipe_proposal` or approved `feature_recipe` asset:
 
 ```text
 lego features build --proposal-id feature_recipe_proposal:yield_curve_steepness --source-csv "Demo Data/macro_monthly.csv" --date-column observation_date --output-name macro_monthly_enriched --json
+lego features build --recipe-id feature_recipe:yield_curve_steepness --source-csv "Demo Data/macro_monthly.csv" --date-column observation_date --output-name macro_monthly_enriched --json
 ```
 
 This prototype supports only simple binary arithmetic expressions:
@@ -723,7 +766,7 @@ or change Technic.
   "created_at": "2026-07-01T14:23:00Z",
   "created_by_run_id": "build_features_001",
   "source_asset_ids": [
-    "feature_recipe_proposal:yield_curve_steepness"
+    "feature_recipe:yield_curve_steepness"
   ],
   "artifact_refs": [
     {
@@ -752,7 +795,7 @@ or change Technic.
   "created_at": "2026-07-01T14:23:00Z",
   "created_by_run_id": "build_features_001",
   "source_asset_ids": [
-    "feature_recipe_proposal:yield_curve_steepness",
+    "feature_recipe:yield_curve_steepness",
     "derived_dataset_snapshot:macro_monthly_enriched:build_features_001"
   ],
   "artifact_refs": [],

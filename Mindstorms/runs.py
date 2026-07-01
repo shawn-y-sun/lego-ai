@@ -1,3 +1,5 @@
+"""Run manifest lifecycle and current protocol asset writer orchestration."""
+
 from __future__ import annotations
 
 import json
@@ -58,6 +60,7 @@ def write_manifest(manifest: Dict[str, Any]) -> Path:
 
 
 def read_manifest(run_id: str) -> Dict[str, Any]:
+    """Read a run manifest and normalize legacy manifests to the v0.1 shape."""
     if run_id == "latest":
         run_id = latest_run_id()
     path = _manifest_path(run_id)
@@ -109,6 +112,7 @@ def list_runs(limit: Optional[int] = None) -> List[Dict[str, Any]]:
 
 
 def search_config_from_inputs(inputs: Dict[str, Any]) -> Dict[str, Any]:
+    """Map legacy search CLI inputs into the stable SearchConfig run input."""
     return {
         "engine": {
             "name": "technic_model_search",
@@ -132,6 +136,7 @@ def search_config_from_inputs(inputs: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def normalize_manifest_for_protocol(manifest: Dict[str, Any]) -> Dict[str, Any]:
+    """Return an in-memory v0.1-compatible view without rewriting old files."""
     normalized = dict(manifest)
     workflow = normalized.get("workflow")
 
@@ -225,6 +230,7 @@ def write_candidate_model_assets(
     manifest: Dict[str, Any],
     outputs: Dict[str, Any],
 ) -> Dict[str, Any]:
+    """Persist CandidateModel assets for selected models and update run outputs."""
     selected_models = outputs.get("selected_models") or []
     if not selected_models:
         return outputs
@@ -292,6 +298,7 @@ def write_evaluation_result_asset(
     manifest: Dict[str, Any],
     outputs: Dict[str, Any],
 ) -> Dict[str, Any]:
+    """Persist a minimal EvaluationResult asset for successful search workflows."""
     workflow_id = manifest.get("workflow_id") or manifest.get("workflow")
     if workflow_id not in SEARCH_WORKFLOW_IDS:
         return outputs

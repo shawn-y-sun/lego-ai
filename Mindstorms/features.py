@@ -1,3 +1,10 @@
+"""Deterministic feature-building helpers for v0.1 protocol assets.
+
+The expression evaluator is intentionally tiny: it supports only one binary
+arithmetic operation between two source columns. That keeps this prototype safe
+and inspectable while the protocol surface is still taking shape.
+"""
+
 from __future__ import annotations
 
 import re
@@ -16,6 +23,7 @@ _BINARY_EXPRESSION_RE = re.compile(
 
 
 def parse_binary_expression(expression: str) -> tuple[str, str, str]:
+    """Parse the only formula shape supported by the deterministic prototype."""
     match = _BINARY_EXPRESSION_RE.match(expression)
     if match is None:
         raise ValueError(
@@ -26,6 +34,7 @@ def parse_binary_expression(expression: str) -> tuple[str, str, str]:
 
 
 def apply_proposed_recipe(df: pd.DataFrame, recipe: Dict[str, Any]) -> pd.DataFrame:
+    """Apply one recipe definition to a DataFrame without using Python eval."""
     left, operator, right = parse_binary_expression(str(recipe.get("expression", "")))
     missing = [column for column in (left, right) if column not in df.columns]
     if missing:
@@ -50,6 +59,7 @@ def apply_proposed_recipe(df: pd.DataFrame, recipe: Dict[str, Any]) -> pd.DataFr
 
 
 def _source_ref(source_csv: Path, repo_root: Optional[Path] = None) -> Dict[str, Any]:
+    """Return a stable repo URI only when the source path is repo-relative."""
     root = (repo_root or Path.cwd()).resolve()
     resolved = source_csv.resolve()
     try:
@@ -60,6 +70,7 @@ def _source_ref(source_csv: Path, repo_root: Optional[Path] = None) -> Dict[str,
 
 
 def _feature_metadata(recipe: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a recipe definition into FeatureSet feature metadata."""
     return {
         "name": recipe.get("name"),
         "recipe_kind": recipe.get("recipe_kind"),
@@ -67,8 +78,21 @@ def _feature_metadata(recipe: Dict[str, Any]) -> Dict[str, Any]:
         "expression_language": recipe.get("expression_language"),
         "source_columns": list(recipe.get("source_columns") or []),
         "category": recipe.get("category"),
+        # In this prototype, a successfully materialized recipe is search-ready.
         "allowed_for_search": True,
     }
+
+
+def _recipes_from_asset(asset_id: str) -> tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    asset = read_asset(asset_id)["asset"]
+    asset_type = asset.get("type")
+    if asset_type == "feature_recipe_proposal":
+        return asset, list(asset.get("proposed_recipes") or [])
+    if asset_type == "feature_recipe":
+        return asset, list(asset.get("recipes") or [])
+    raise ValueError(
+        f"Asset '{asset_id}' must be a feature_recipe_proposal or feature_recipe."
+    )
 
 
 def build_features_from_proposal(
@@ -80,17 +104,20 @@ def build_features_from_proposal(
     output_name: str,
     artifacts_dir: Path,
 ) -> Dict[str, Any]:
-    proposal = read_asset(proposal_id)["asset"]
-    if proposal.get("type") != "feature_recipe_proposal":
-        raise ValueError(f"Asset '{proposal_id}' is not a feature_recipe_proposal.")
+    """Build a derived CSV plus DerivedDatasetSnapshot and FeatureSet assets.
+
+    ``proposal_id`` is kept for backward compatibility with the first
+    BuildFeatures slice. It may now point to either a proposal asset or an
+    approved feature_recipe asset; lineage follows the asset actually used.
+    """
+    source_asset, recipes = _recipes_from_asset(proposal_id)
 
     df = pd.read_csv(source_csv)
     if date_column and date_column not in df.columns:
         raise ValueError(f"Date column '{date_column}' was not found in source CSV.")
 
-    recipes = list(proposal.get("proposed_recipes") or [])
     if not recipes:
-        raise ValueError("Feature recipe proposal does not contain proposed recipes.")
+        raise ValueError("Feature recipe asset does not contain recipes.")
 
     output = df
     added_columns: List[str] = []
@@ -131,7 +158,7 @@ def build_features_from_proposal(
         "type": "derived_dataset_snapshot",
         "created_at": created_at,
         "created_by_run_id": run_id,
-        "source_asset_ids": [proposal_id],
+        "source_asset_ids": [source_asset["asset_id"]],
         "artifact_refs": [artifact_ref],
         "source_run_id": run_id,
         "name": output_name,
@@ -149,7 +176,7 @@ def build_features_from_proposal(
         "type": "feature_set",
         "created_at": created_at,
         "created_by_run_id": run_id,
-        "source_asset_ids": [proposal_id, derived_asset_ref.asset_id],
+        "source_asset_ids": [source_asset["asset_id"], derived_asset_ref.asset_id],
         "artifact_refs": [],
         "source_run_id": run_id,
         "name": output_name,

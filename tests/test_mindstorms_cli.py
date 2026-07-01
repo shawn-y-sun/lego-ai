@@ -56,6 +56,8 @@ def test_cli_help_json_catalog_highlights_pilot_path(capsys):
     assert commands["demo search"]["safe_for_pilot"] is False
     assert commands["recipe propose"]["safe_for_pilot"] is True
     assert "feature recipe proposal" in commands["recipe propose"]["purpose"]
+    assert commands["recipe approve"]["safe_for_pilot"] is True
+    assert "approved feature recipe" in commands["recipe approve"]["purpose"]
     assert commands["features build"]["safe_for_pilot"] is True
     assert "deterministic feature outputs" in commands["features build"]["purpose"]
 
@@ -541,6 +543,142 @@ def test_cli_features_build_writes_artifact_assets_and_index(isolated_runs_root,
             "name": "macro_monthly_enriched",
         }
     ]
+
+
+def test_cli_recipe_approve_and_features_build_with_recipe_id(isolated_runs_root, tmp_path, capsys):
+    assert (
+        cli.main(
+            [
+                "recipe",
+                "propose",
+                "--request",
+                "Create variables that capture yield curve steepness.",
+                "--name",
+                "USYC10_2",
+                "--expression",
+                "USGOV10Y - USGOV2Y",
+                "--source-columns",
+                "USGOV10Y",
+                "USGOV2Y",
+                "--category",
+                "yield_slope",
+                "--scope",
+                "project",
+                "--rationale",
+                "Classic 10Y-2Y slope.",
+                "--slug",
+                "yield_curve_steepness",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    assert (
+        cli.main(
+            [
+                "recipe",
+                "approve",
+                "--proposal-id",
+                "feature_recipe_proposal:yield_curve_steepness",
+                "--approved-by",
+                "model_owner",
+                "--rationale",
+                "Looks reasonable for deterministic prototype.",
+                "--json",
+            ]
+        )
+        == 0
+    )
+
+    approve_payload = json.loads(capsys.readouterr().out)
+    recipe_id = "feature_recipe:yield_curve_steepness"
+    assert approve_payload["ok"] is True
+    assert approve_payload["run"]["workflow_id"] == "approve_feature_recipe"
+    assert approve_payload["run"]["outputs"]["assets"] == [
+        {
+            "asset_id": recipe_id,
+            "type": "feature_recipe",
+            "role": "approved_feature_recipe",
+            "uri": "asset://feature_recipe/yield_curve_steepness.json",
+        }
+    ]
+    assert approve_payload["run"]["outputs"]["summary"] == {
+        "status": "approved",
+        "scope": "project",
+        "recipe_asset_id": recipe_id,
+        "recipe_count": 1,
+    }
+
+    assert cli.main(["asset", "inspect", recipe_id, "--json"]) == 0
+    recipe_payload = json.loads(capsys.readouterr().out)
+    assert recipe_payload["asset"]["type"] == "feature_recipe"
+    assert recipe_payload["asset"]["status"] == "approved"
+    assert recipe_payload["asset"]["source_asset_ids"] == [
+        "feature_recipe_proposal:yield_curve_steepness"
+    ]
+    assert recipe_payload["asset"]["approved_by"] == {"name": "model_owner"}
+    assert recipe_payload["asset"]["approval_rationale"] == (
+        "Looks reasonable for deterministic prototype."
+    )
+    assert recipe_payload["asset"]["recipes"][0]["name"] == "USYC10_2"
+
+    assert cli.main(["assets", "list", "--type", "feature_recipe", "--json"]) == 0
+    list_payload = json.loads(capsys.readouterr().out)
+    assert list_payload["assets"] == [
+        {
+            "asset_id": recipe_id,
+            "type": "feature_recipe",
+            "uri": "asset://feature_recipe/yield_curve_steepness.json",
+            "created_at": approve_payload["run"]["completed_at"],
+            "created_by_run_id": approve_payload["run"]["run_id"],
+            "source_run_id": approve_payload["run"]["run_id"],
+            "scope": "project",
+            "status": "approved",
+        }
+    ]
+
+    source_csv = tmp_path / "macro_monthly.csv"
+    pd.DataFrame(
+        {
+            "observation_date": ["2026-01-31", "2026-02-28"],
+            "USGOV10Y": [5.0, 4.5],
+            "USGOV2Y": [3.0, 3.5],
+        }
+    ).to_csv(source_csv, index=False)
+    assert (
+        cli.main(
+            [
+                "features",
+                "build",
+                "--recipe-id",
+                recipe_id,
+                "--source-csv",
+                str(source_csv),
+                "--date-column",
+                "observation_date",
+                "--output-name",
+                "macro_monthly_enriched",
+                "--json",
+            ]
+        )
+        == 0
+    )
+
+    build_payload = json.loads(capsys.readouterr().out)
+    run_id = build_payload["run"]["run_id"]
+    derived_id = f"derived_dataset_snapshot:macro_monthly_enriched:{run_id}"
+    feature_set_id = f"feature_set:macro_monthly_enriched:{run_id}"
+    assert build_payload["run"]["inputs"]["recipe_id"] == recipe_id
+    assert build_payload["run"]["inputs"]["proposal_id"] is None
+    assert cli.main(["asset", "inspect", derived_id, "--json"]) == 0
+    derived_payload = json.loads(capsys.readouterr().out)
+    assert derived_payload["asset"]["source_asset_ids"] == [recipe_id]
+
+    assert cli.main(["asset", "inspect", feature_set_id, "--json"]) == 0
+    feature_set_payload = json.loads(capsys.readouterr().out)
+    assert feature_set_payload["asset"]["source_asset_ids"] == [recipe_id, derived_id]
 
 
 def test_cli_features_build_fails_cleanly_for_unsupported_expression(isolated_runs_root, tmp_path, capsys):
