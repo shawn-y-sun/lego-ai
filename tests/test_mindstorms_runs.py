@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from Mindstorms import assets
 from Mindstorms import runs
 
 
@@ -11,7 +12,7 @@ def isolated_runs_root(tmp_path, monkeypatch):
     assets_root = tmp_path / ".lego" / "assets"
     monkeypatch.setattr(runs, "RUNS_ROOT", runs_root)
     monkeypatch.setattr(runs, "LATEST_FILE", runs_root / "latest")
-    monkeypatch.setattr(runs, "ASSETS_ROOT", assets_root)
+    monkeypatch.setattr(assets, "ASSETS_ROOT", assets_root)
     return runs_root
 
 
@@ -329,7 +330,7 @@ def test_candidate_model_assets_include_stable_search_artifact_refs(isolated_run
 
     runs.write_candidate_model_assets(manifest, outputs)
 
-    payload = runs.read_asset("candidate_model:home_price_GR1:cm1")["asset"]
+    payload = assets.read_asset("candidate_model:home_price_GR1:cm1")["asset"]
     assert payload["artifact_refs"] == [
         {
             "uri": "technic://Segment/home_price_GR1/cms/search_001",
@@ -376,7 +377,7 @@ def test_evaluation_result_asset_is_written_for_search_outputs(isolated_runs_roo
         "role": "search_evaluation",
         "uri": "asset://evaluation_result/home_price_GR1/search_001.json",
     }
-    payload = runs.read_asset("evaluation_result:home_price_GR1:search_001")["asset"]
+    payload = assets.read_asset("evaluation_result:home_price_GR1:search_001")["asset"]
     assert payload == {
         "protocol_version": "0.1",
         "asset_id": "evaluation_result:home_price_GR1:search_001",
@@ -398,7 +399,7 @@ def test_evaluation_result_asset_is_written_for_search_outputs(isolated_runs_roo
         "weaknesses": [],
         "recommended_next_actions": [],
     }
-    assert [asset["type"] for asset in runs.read_asset_index()["assets"]] == [
+    assert [asset["type"] for asset in assets.read_asset_index()["assets"]] == [
         "candidate_model",
         "evaluation_result",
     ]
@@ -433,7 +434,7 @@ def test_evaluation_result_asset_represents_zero_selected_search(isolated_runs_r
             "uri": "asset://evaluation_result/home_price_GR1/search_002.json",
         }
     ]
-    payload = runs.read_asset("evaluation_result:home_price_GR1:search_002")["asset"]
+    payload = assets.read_asset("evaluation_result:home_price_GR1:search_002")["asset"]
     assert payload["candidate_model_ids"] == []
     assert "best_candidate_model_id" not in payload
     assert payload["summary"] == {
@@ -462,25 +463,3 @@ def test_evaluation_result_asset_is_not_written_for_fit_single(isolated_runs_roo
 
     assert runs.write_evaluation_result_asset(manifest, outputs) == outputs
     assert not (isolated_runs_root.parent / "assets").exists()
-
-
-def test_asset_index_upserts_existing_asset_entries(isolated_runs_root):
-    first = {
-        "asset_id": "candidate_model:home_price_GR1:cm1",
-        "type": "candidate_model",
-        "uri": "asset://candidate_model/home_price_GR1/cm1.json",
-        "created_at": "2026-06-30T14:23:00Z",
-        "created_by_run_id": "search_001",
-    }
-    second = {
-        "asset_id": "candidate_model:home_price_GR1:cm1",
-        "type": "candidate_model",
-        "uri": "asset://candidate_model/home_price_GR1/cm1.json",
-        "created_at": "2026-06-30T15:00:00Z",
-        "created_by_run_id": "search_002",
-    }
-
-    runs.upsert_asset_index_entries([first])
-    runs.upsert_asset_index_entries([second])
-
-    assert runs.read_asset_index()["assets"] == [second]

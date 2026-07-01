@@ -8,14 +8,13 @@ from io import StringIO
 from typing import Any, Callable, Dict, Optional, Sequence
 
 from . import __version__
+from .assets import list_assets, read_asset
 from .runs import (
     base_manifest,
     fail_manifest,
-    list_assets,
     list_runs,
     new_run_id,
     normalize_outputs_for_protocol,
-    read_asset,
     read_manifest,
     search_config_from_inputs,
     write_candidate_model_assets,

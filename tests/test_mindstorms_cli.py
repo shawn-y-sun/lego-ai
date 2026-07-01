@@ -3,6 +3,7 @@ import json
 import pytest
 
 from Mindstorms import __version__
+from Mindstorms import assets
 from Mindstorms import cli, runs
 
 
@@ -12,7 +13,7 @@ def isolated_runs_root(tmp_path, monkeypatch):
     assets_root = tmp_path / ".lego" / "assets"
     monkeypatch.setattr(runs, "RUNS_ROOT", runs_root)
     monkeypatch.setattr(runs, "LATEST_FILE", runs_root / "latest")
-    monkeypatch.setattr(runs, "ASSETS_ROOT", assets_root)
+    monkeypatch.setattr(assets, "ASSETS_ROOT", assets_root)
     return runs_root
 
 
@@ -283,7 +284,7 @@ def test_cli_assets_list_and_asset_inspect_emit_json(isolated_runs_root, capsys)
         "source_run_id": "search_001",
         "target": "home_price_GR1",
     }
-    runs.upsert_asset_index_entries([asset_ref])
+    assets.upsert_asset_index_entries([asset_ref])
     asset_path = isolated_runs_root.parent / "assets" / "candidate_model" / "home_price_GR1" / "cm1.json"
     asset_path.parent.mkdir(parents=True, exist_ok=True)
     asset_path.write_text(

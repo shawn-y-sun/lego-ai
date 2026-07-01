@@ -2,18 +2,21 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .protocol import ASSETS_ROOT, PROTOCOL_VERSION, ArtifactRef, AssetRef, asset_ref_to_path, asset_uri_to_path
+from .assets import (
+    asset_path_segment,
+    upsert_asset_index_entries,
+    write_asset_json,
+)
+from .protocol import PROTOCOL_VERSION, ArtifactRef, AssetRef
 
 
 RUNS_ROOT = Path(".lego") / "runs"
 LATEST_FILE = RUNS_ROOT / "latest"
-_SAFE_ASSET_SEGMENT_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 _LAST_MANIFEST_MTIME_NS = 0
 SEARCH_WORKFLOW_IDS = {"demo_housing_search", "demo_housing_search_smoke"}
 
@@ -33,10 +36,6 @@ def _run_dir(run_id: str) -> Path:
 
 def _manifest_path(run_id: str) -> Path:
     return _run_dir(run_id) / "manifest.json"
-
-
-def _asset_index_path() -> Path:
-    return ASSETS_ROOT / "index.json"
 
 
 def write_manifest(manifest: Dict[str, Any]) -> Path:
@@ -103,71 +102,6 @@ def list_runs(limit: Optional[int] = None) -> List[Dict[str, Any]]:
             }
         )
     return runs
-
-
-def read_asset_index() -> Dict[str, Any]:
-    path = _asset_index_path()
-    if not path.exists():
-        return {"protocol_version": PROTOCOL_VERSION, "assets": []}
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def upsert_asset_index_entries(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
-    index = read_asset_index()
-    by_id = {
-        entry["asset_id"]: entry
-        for entry in index.get("assets", [])
-        if "asset_id" in entry
-    }
-    for entry in entries:
-        by_id[entry["asset_id"]] = entry
-
-    index = {
-        "protocol_version": PROTOCOL_VERSION,
-        "assets": sorted(
-            by_id.values(),
-            key=lambda item: (
-                item.get("type", ""),
-                item.get("asset_id", ""),
-                item.get("created_at", ""),
-            ),
-        ),
-    }
-    path = _asset_index_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(index, indent=2, sort_keys=True), encoding="utf-8")
-    return index
-
-
-def list_assets(
-    *,
-    asset_type: Optional[str] = None,
-    target: Optional[str] = None,
-    limit: Optional[int] = None,
-) -> List[Dict[str, Any]]:
-    assets = list(read_asset_index().get("assets", []))
-    if asset_type is not None:
-        assets = [asset for asset in assets if asset.get("type") == asset_type]
-    if target is not None:
-        assets = [asset for asset in assets if asset.get("target") == target]
-    if limit is not None:
-        assets = assets[:limit]
-    return assets
-
-
-def read_asset(asset_id: str) -> Dict[str, Any]:
-    for asset_ref in read_asset_index().get("assets", []):
-        if asset_ref.get("asset_id") != asset_id:
-            continue
-        asset_path = asset_uri_to_path(asset_ref["uri"], assets_root=ASSETS_ROOT)
-        if not asset_path.exists():
-            raise FileNotFoundError(f"Asset file is missing for '{asset_id}'.")
-        return {
-            "asset": json.loads(asset_path.read_text(encoding="utf-8")),
-            "asset_ref": asset_ref,
-            "asset_path": str(asset_path),
-        }
-    raise FileNotFoundError(f"No asset found for '{asset_id}'.")
 
 
 def search_config_from_inputs(inputs: Dict[str, Any]) -> Dict[str, Any]:
@@ -257,13 +191,6 @@ def normalize_outputs_for_protocol(outputs: Dict[str, Any]) -> Dict[str, Any]:
     return normalized
 
 
-def _asset_path_segment(value: Any) -> str:
-    segment = _SAFE_ASSET_SEGMENT_RE.sub("_", str(value).strip()).strip("._")
-    if not segment:
-        raise ValueError("Asset path segment cannot be empty.")
-    return segment
-
-
 def candidate_model_artifact_refs(
     outputs: Dict[str, Any],
     model_id: str,
@@ -273,9 +200,9 @@ def candidate_model_artifact_refs(
     if not segment_id or not search_id:
         return []
 
-    segment = _asset_path_segment(segment_id)
-    search = _asset_path_segment(search_id)
-    model = _asset_path_segment(model_id)
+    segment = asset_path_segment(segment_id)
+    search = asset_path_segment(search_id)
+    model = asset_path_segment(model_id)
     return [
         ArtifactRef(
             uri=f"technic://Segment/{segment}/cms/{search}",
@@ -300,14 +227,14 @@ def write_candidate_model_assets(
 
     normalized = normalize_outputs_for_protocol(outputs)
     target = normalized.get("target") or manifest.get("target") or "unknown_target"
-    target_segment = _asset_path_segment(target)
+    target_segment = asset_path_segment(target)
     created_at = manifest.get("completed_at") or utc_timestamp()
     existing_refs = list(normalized.get("assets") or [])
     index_entries: List[Dict[str, Any]] = []
 
     for index, candidate in enumerate(selected_models, start=1):
         model_id = candidate.get("model_id") or f"candidate_{index:03d}"
-        model_segment = _asset_path_segment(model_id)
+        model_segment = asset_path_segment(model_id)
         asset_id = f"candidate_model:{target}:{model_id}"
         asset_ref = AssetRef(
             asset_id=asset_id,
@@ -330,12 +257,7 @@ def write_candidate_model_assets(
             "specs": candidate.get("specs", []),
             "metrics": candidate.get("metrics", {}),
         }
-        asset_path = asset_ref_to_path(asset_ref, assets_root=ASSETS_ROOT)
-        asset_path.parent.mkdir(parents=True, exist_ok=True)
-        asset_path.write_text(
-            json.dumps(asset_payload, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
+        write_asset_json(asset_ref, asset_payload)
         asset_ref_payload = asset_ref.to_dict()
         if asset_ref_payload not in existing_refs:
             existing_refs.append(asset_ref_payload)
@@ -372,9 +294,9 @@ def write_evaluation_result_asset(
 
     normalized = normalize_outputs_for_protocol(outputs)
     target = normalized.get("target") or manifest.get("target") or "unknown_target"
-    target_segment = _asset_path_segment(target)
+    target_segment = asset_path_segment(target)
     run_id = manifest["run_id"]
-    run_segment = _asset_path_segment(run_id)
+    run_segment = asset_path_segment(run_id)
     created_at = manifest.get("completed_at") or utc_timestamp()
     asset_id = f"evaluation_result:{target}:{run_id}"
     asset_ref = AssetRef(
@@ -419,12 +341,7 @@ def write_evaluation_result_asset(
     if candidate_model_ids:
         asset_payload["best_candidate_model_id"] = candidate_model_ids[0]
 
-    asset_path = asset_ref_to_path(asset_ref, assets_root=ASSETS_ROOT)
-    asset_path.parent.mkdir(parents=True, exist_ok=True)
-    asset_path.write_text(
-        json.dumps(asset_payload, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
+    write_asset_json(asset_ref, asset_payload)
 
     existing_refs = list(normalized.get("assets") or [])
     asset_ref_payload = asset_ref.to_dict()

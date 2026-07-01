@@ -1114,6 +1114,11 @@ v0.1 should use run manifests as execution records, not as the only durable
 asset store. Each durable Asset emitted in `outputs.assets` must have a
 standalone JSON file addressable by its AssetRef `uri`.
 
+Run manifests are execution records. Asset JSON files are durable modeling
+state. The asset storage seam owns asset path, index, read, and write
+mechanics; workflow code should construct semantic asset payloads rather than
+hand-roll storage details.
+
 `.lego/assets/index.json` is useful for cross-run lookup, but it is an optional
 index over asset files rather than the source of truth. A reader should be able
 to resolve an AssetRef directly to the corresponding asset JSON without the
