@@ -21,6 +21,7 @@ RUNS_ROOT = Path(".lego") / "runs"
 LATEST_FILE = RUNS_ROOT / "latest"
 _LAST_MANIFEST_MTIME_NS = 0
 SEARCH_WORKFLOW_IDS = {"demo_housing_search", "demo_housing_search_smoke"}
+FIT_WORKFLOW_IDS = {"demo_housing_fit_single"}
 
 
 def utc_timestamp() -> str:
@@ -200,6 +201,96 @@ def normalize_outputs_for_protocol(outputs: Dict[str, Any]) -> Dict[str, Any]:
     return normalized
 
 
+def _candidate_assets_by_model_id(outputs: Dict[str, Any]) -> Dict[str, str]:
+    by_model_id: Dict[str, str] = {}
+    for asset in outputs.get("assets") or []:
+        if asset.get("type") != "candidate_model":
+            continue
+        asset_id = asset.get("asset_id")
+        if not isinstance(asset_id, str):
+            continue
+        model_id = asset_id.rsplit(":", 1)[-1]
+        if model_id:
+            by_model_id[model_id] = asset_id
+    return by_model_id
+
+
+def _metric_highlights(candidate: Dict[str, Any]) -> Dict[str, Any]:
+    metrics = candidate.get("metrics")
+    if not isinstance(metrics, dict):
+        return {}
+    return {
+        name: value
+        for name, value in metrics.items()
+        if isinstance(value, (int, float)) and value is not None
+    }
+
+
+def enrich_summary_for_protocol(manifest: Dict[str, Any], outputs: Dict[str, Any]) -> Dict[str, Any]:
+    """Populate stable summary fields once assets and run inputs are known."""
+    normalized = normalize_outputs_for_protocol(outputs)
+    workflow_id = manifest.get("workflow_id") or manifest.get("workflow")
+    summary = dict(normalized.get("summary") or {})
+    selected_models = list(normalized.get("selected_models") or [])
+    first_model = selected_models[0] if selected_models else {}
+    best_model_id = first_model.get("model_id") if isinstance(first_model, dict) else None
+    assets_by_model_id = _candidate_assets_by_model_id(normalized)
+    best_candidate_model_id = assets_by_model_id.get(best_model_id) if best_model_id else None
+
+    if workflow_id in SEARCH_WORKFLOW_IDS:
+        selected_count = normalized.get("selected_count", len(selected_models))
+        summary.update(
+            {
+                "summary_type": "search_summary",
+                "target": normalized.get("target") or manifest.get("target"),
+                "segment_id": normalized.get("segment_id") or manifest.get("segment_id"),
+                "search_id": normalized.get("search_id"),
+                "selected_count": selected_count,
+                "zero_selected_is_valid": bool(normalized.get("zero_selected_is_valid", False)),
+                "pilot_smoke": bool(
+                    normalized.get(
+                        "pilot_smoke",
+                        (manifest.get("inputs") or {}).get("pilot_smoke", False),
+                    )
+                ),
+                "candidate_count": len(selected_models),
+            }
+        )
+        if best_model_id:
+            summary["best_model_id"] = best_model_id
+        if best_candidate_model_id:
+            summary["best_candidate_model_id"] = best_candidate_model_id
+        if int(selected_count or 0) == 0 and "no_candidate_reason" not in summary:
+            summary["no_candidate_reason"] = "no_models_passed_filters"
+
+    if workflow_id in FIT_WORKFLOW_IDS:
+        inputs = manifest.get("inputs") or {}
+        summary.update(
+            {
+                "summary_type": "fit_summary",
+                "target": normalized.get("target") or manifest.get("target"),
+                "segment_id": normalized.get("segment_id") or manifest.get("segment_id"),
+                "selected_count": normalized.get("selected_count", len(selected_models)),
+                "model_count": len(selected_models),
+                "sample": inputs.get("sample"),
+                "specs": list(inputs.get("specs") or []),
+            }
+        )
+        if best_model_id:
+            summary["best_model_id"] = best_model_id
+        if best_candidate_model_id:
+            summary["best_candidate_model_id"] = best_candidate_model_id
+        if isinstance(first_model, dict):
+            if first_model.get("formula") is not None:
+                summary["best_formula"] = first_model.get("formula")
+            highlights = _metric_highlights(first_model)
+            if highlights:
+                summary["metric_highlights"] = highlights
+
+    normalized["summary"] = {key: value for key, value in summary.items() if value is not None}
+    return normalized
+
+
 def candidate_model_artifact_refs(
     outputs: Dict[str, Any],
     model_id: str,
@@ -237,7 +328,9 @@ def write_candidate_model_assets(
 
     normalized = normalize_outputs_for_protocol(outputs)
     target = normalized.get("target") or manifest.get("target") or "unknown_target"
+    segment_id = normalized.get("segment_id") or manifest.get("segment_id")
     target_segment = asset_path_segment(target)
+    run_segment = asset_path_segment(manifest["run_id"])
     created_at = manifest.get("completed_at") or utc_timestamp()
     existing_refs = list(normalized.get("assets") or [])
     index_entries: List[Dict[str, Any]] = []
@@ -245,12 +338,12 @@ def write_candidate_model_assets(
     for index, candidate in enumerate(selected_models, start=1):
         model_id = candidate.get("model_id") or f"candidate_{index:03d}"
         model_segment = asset_path_segment(model_id)
-        asset_id = f"candidate_model:{target}:{model_id}"
+        asset_id = f"candidate_model:{target}:{manifest['run_id']}:{model_id}"
         asset_ref = AssetRef(
             asset_id=asset_id,
             type="candidate_model",
             role="selected_model",
-            uri=f"asset://candidate_model/{target_segment}/{model_segment}.json",
+            uri=f"asset://candidate_model/{target_segment}/{run_segment}/{model_segment}.json",
         )
         asset_payload = {
             "protocol_version": PROTOCOL_VERSION,
@@ -262,6 +355,7 @@ def write_candidate_model_assets(
             "artifact_refs": candidate_model_artifact_refs(normalized, model_id),
             "source_run_id": manifest["run_id"],
             "target": target,
+            "segment_id": segment_id,
             "model_id": model_id,
             "formula": candidate.get("formula"),
             "specs": candidate.get("specs", []),
@@ -305,6 +399,7 @@ def write_evaluation_result_asset(
 
     normalized = normalize_outputs_for_protocol(outputs)
     target = normalized.get("target") or manifest.get("target") or "unknown_target"
+    segment_id = normalized.get("segment_id") or manifest.get("segment_id")
     target_segment = asset_path_segment(target)
     run_id = manifest["run_id"]
     run_segment = asset_path_segment(run_id)
@@ -325,6 +420,7 @@ def write_evaluation_result_asset(
     selected_count = normalized.get("selected_count")
     if selected_count is None:
         selected_count = len(candidate_model_ids)
+    candidate_count = len(candidate_model_ids)
     zero_selected_is_valid = bool(normalized.get("zero_selected_is_valid", False))
     warnings = manifest.get("warnings") if isinstance(manifest.get("warnings"), list) else []
     summary = {
@@ -344,8 +440,13 @@ def write_evaluation_result_asset(
         "artifact_refs": [],
         "source_run_id": run_id,
         "target": target,
+        "segment_id": segment_id,
+        "candidate_count": candidate_count,
+        "selected_count": int(selected_count),
         "candidate_model_ids": candidate_model_ids,
         "summary": summary,
+        "warnings": warnings,
+        "diagnostics": {},
         "weaknesses": [],
         "recommended_next_actions": [],
     }

@@ -21,6 +21,7 @@ from .recipes import (
 )
 from .runs import (
     base_manifest,
+    enrich_summary_for_protocol,
     fail_manifest,
     list_runs,
     new_run_id,
@@ -77,10 +78,9 @@ def _complete_manifest(manifest: Dict[str, Any], outputs: Dict[str, Any]) -> Dic
 
     manifest["completed_at"] = utc_timestamp()
     normalized_outputs = normalize_outputs_for_protocol(outputs)
-    manifest["outputs"] = write_evaluation_result_asset(
-        manifest,
-        write_candidate_model_assets(manifest, normalized_outputs),
-    )
+    asset_outputs = write_candidate_model_assets(manifest, normalized_outputs)
+    summary_outputs = enrich_summary_for_protocol(manifest, asset_outputs)
+    manifest["outputs"] = write_evaluation_result_asset(manifest, summary_outputs)
     return manifest
 
 

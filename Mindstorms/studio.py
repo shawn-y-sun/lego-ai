@@ -297,6 +297,61 @@ def _lineage(
     return entries
 
 
+def _expected_asset_health(
+    manifests: List[Dict[str, Any]],
+    findings: List[Dict[str, Any]],
+) -> None:
+    for manifest in manifests:
+        if manifest.get("status") != "succeeded":
+            continue
+
+        run_id = manifest.get("run_id")
+        workflow_id = manifest.get("workflow_id") or manifest.get("workflow")
+        outputs = dict(manifest.get("outputs") or {})
+        summary = dict(outputs.get("summary") or {})
+        output_assets = outputs.get("assets") if isinstance(outputs.get("assets"), list) else []
+        asset_types = {asset.get("type") for asset in output_assets if isinstance(asset, dict)}
+        selected_count = summary.get("selected_count", outputs.get("selected_count"))
+        selected_count = int(selected_count or 0)
+
+        if workflow_id == "demo_housing_fit_single" and selected_count > 0:
+            if "candidate_model" not in asset_types:
+                findings.append(
+                    _finding(
+                        "EXPECTED_CANDIDATE_MODEL_ASSET_MISSING",
+                        "warning",
+                        "A successful fit run selected a model but did not reference a candidate_model asset.",
+                        run_id=run_id,
+                        workflow_id=workflow_id,
+                        selected_count=selected_count,
+                    )
+                )
+
+        if workflow_id in {"demo_housing_search", "demo_housing_search_smoke"}:
+            if selected_count > 0 and "candidate_model" not in asset_types:
+                findings.append(
+                    _finding(
+                        "EXPECTED_CANDIDATE_MODEL_ASSET_MISSING",
+                        "warning",
+                        "A successful search run selected models but did not reference candidate_model assets.",
+                        run_id=run_id,
+                        workflow_id=workflow_id,
+                        selected_count=selected_count,
+                    )
+                )
+            if "evaluation_result" not in asset_types:
+                findings.append(
+                    _finding(
+                        "EXPECTED_EVALUATION_RESULT_ASSET_MISSING",
+                        "warning",
+                        "A successful search run did not reference an evaluation_result asset.",
+                        run_id=run_id,
+                        workflow_id=workflow_id,
+                        selected_count=selected_count,
+                    )
+                )
+
+
 def _diagnostics(
     manifests: List[Dict[str, Any]],
     findings: List[Dict[str, Any]],
@@ -345,6 +400,7 @@ def build_studio_snapshot() -> Dict[str, Any]:
     diagnostics.extend(_diagnostics(manifests, findings))
     inventory = _asset_inventory(asset_entries, findings)
     lineage = _lineage(manifests, asset_entries, findings)
+    _expected_asset_health(manifests, findings)
 
     return {
         "protocol_version": PROTOCOL_VERSION,

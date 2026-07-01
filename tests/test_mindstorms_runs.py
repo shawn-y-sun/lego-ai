@@ -264,22 +264,23 @@ def test_candidate_model_assets_are_written_and_referenced(isolated_runs_root):
     assert updated["selected_models"][0]["model_id"] == "cm1"
     assert updated["assets"] == [
         {
-            "asset_id": "candidate_model:home_price_GR1:cm1",
+            "asset_id": "candidate_model:home_price_GR1:search_001:cm1",
             "type": "candidate_model",
             "role": "selected_model",
-            "uri": "asset://candidate_model/home_price_GR1/cm1.json",
+            "uri": "asset://candidate_model/home_price_GR1/search_001/cm1.json",
         }
     ]
 
-    asset_path = isolated_runs_root.parent / "assets" / "candidate_model" / "home_price_GR1" / "cm1.json"
+    asset_path = isolated_runs_root.parent / "assets" / "candidate_model" / "home_price_GR1" / "search_001" / "cm1.json"
     payload = json.loads(asset_path.read_text(encoding="utf-8"))
     assert payload["protocol_version"] == "0.1"
-    assert payload["asset_id"] == "candidate_model:home_price_GR1:cm1"
+    assert payload["asset_id"] == "candidate_model:home_price_GR1:search_001:cm1"
     assert payload["type"] == "candidate_model"
     assert payload["created_at"] == "2026-06-30T14:23:00Z"
     assert payload["created_by_run_id"] == "search_001"
     assert payload["source_run_id"] == "search_001"
     assert payload["target"] == "home_price_GR1"
+    assert payload["segment_id"] == "home_price_GR1"
     assert payload["formula"] == "home_price_GR1 ~ USMORT30Y"
     assert payload["specs"] == ["USMORT30Y"]
     assert payload["metrics"] == {"rsquared": 0.82}
@@ -290,9 +291,9 @@ def test_candidate_model_assets_are_written_and_referenced(isolated_runs_root):
         "protocol_version": "0.1",
         "assets": [
             {
-                "asset_id": "candidate_model:home_price_GR1:cm1",
+                "asset_id": "candidate_model:home_price_GR1:search_001:cm1",
                 "type": "candidate_model",
-                "uri": "asset://candidate_model/home_price_GR1/cm1.json",
+                "uri": "asset://candidate_model/home_price_GR1/search_001/cm1.json",
                 "created_at": "2026-06-30T14:23:00Z",
                 "created_by_run_id": "search_001",
                 "source_run_id": "search_001",
@@ -330,7 +331,7 @@ def test_candidate_model_assets_include_stable_search_artifact_refs(isolated_run
 
     runs.write_candidate_model_assets(manifest, outputs)
 
-    payload = assets.read_asset("candidate_model:home_price_GR1:cm1")["asset"]
+    payload = assets.read_asset("candidate_model:home_price_GR1:search_001:cm1")["asset"]
     assert payload["artifact_refs"] == [
         {
             "uri": "technic://Segment/home_price_GR1/cms/search_001",
@@ -345,6 +346,39 @@ def test_candidate_model_assets_include_stable_search_artifact_refs(isolated_run
     ]
     assert all("C:" not in ref["uri"] for ref in payload["artifact_refs"])
     assert all("\\" not in ref["uri"] for ref in payload["artifact_refs"])
+
+
+def test_candidate_model_asset_ids_are_run_scoped(isolated_runs_root):
+    first_manifest = runs.base_manifest(
+        run_id="fit_001",
+        workflow="demo_housing_fit_single",
+        segment_id="home_price_GR1",
+        target="home_price_GR1",
+        inputs={},
+    )
+    second_manifest = runs.base_manifest(
+        run_id="search_001",
+        workflow="demo_housing_search",
+        segment_id="home_price_GR1",
+        target="home_price_GR1",
+        inputs={},
+    )
+    outputs = runs.normalize_outputs_for_protocol(
+        {
+            "target": "home_price_GR1",
+            "selected_models": [{"model_id": "cm1"}],
+        }
+    )
+
+    first_outputs = runs.write_candidate_model_assets(first_manifest, outputs)
+    second_outputs = runs.write_candidate_model_assets(second_manifest, outputs)
+
+    fit_asset_id = "candidate_model:home_price_GR1:fit_001:cm1"
+    search_asset_id = "candidate_model:home_price_GR1:search_001:cm1"
+    assert first_outputs["assets"][0]["asset_id"] == fit_asset_id
+    assert second_outputs["assets"][0]["asset_id"] == search_asset_id
+    assert assets.read_asset(fit_asset_id)["asset"]["source_run_id"] == "fit_001"
+    assert assets.read_asset(search_asset_id)["asset"]["source_run_id"] == "search_001"
 
 
 def test_evaluation_result_asset_is_written_for_search_outputs(isolated_runs_root):
@@ -384,18 +418,23 @@ def test_evaluation_result_asset_is_written_for_search_outputs(isolated_runs_roo
         "type": "evaluation_result",
         "created_at": "2026-06-30T14:23:00Z",
         "created_by_run_id": "search_001",
-        "source_asset_ids": ["candidate_model:home_price_GR1:cm1"],
+        "source_asset_ids": ["candidate_model:home_price_GR1:search_001:cm1"],
         "artifact_refs": [],
         "source_run_id": "search_001",
         "target": "home_price_GR1",
-        "candidate_model_ids": ["candidate_model:home_price_GR1:cm1"],
-        "best_candidate_model_id": "candidate_model:home_price_GR1:cm1",
+        "segment_id": "home_price_GR1",
+        "candidate_count": 1,
+        "selected_count": 1,
+        "candidate_model_ids": ["candidate_model:home_price_GR1:search_001:cm1"],
+        "best_candidate_model_id": "candidate_model:home_price_GR1:search_001:cm1",
         "summary": {
             "status": "needs_review",
             "selected_count": 1,
             "zero_selected_is_valid": True,
             "warning_count": 0,
         },
+        "warnings": [],
+        "diagnostics": {},
         "weaknesses": [],
         "recommended_next_actions": [],
     }
@@ -436,6 +475,9 @@ def test_evaluation_result_asset_represents_zero_selected_search(isolated_runs_r
     ]
     payload = assets.read_asset("evaluation_result:home_price_GR1:search_002")["asset"]
     assert payload["candidate_model_ids"] == []
+    assert payload["candidate_count"] == 0
+    assert payload["selected_count"] == 0
+    assert payload["segment_id"] == "home_price_GR1"
     assert "best_candidate_model_id" not in payload
     assert payload["summary"] == {
         "status": "no_candidates_selected",

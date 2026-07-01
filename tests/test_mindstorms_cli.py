@@ -80,6 +80,7 @@ def test_cli_demo_search_smoke_parser_path(monkeypatch, isolated_runs_root, caps
     assert cli.main(["demo", "search-smoke", "--json"]) == 0
 
     payload = json.loads(capsys.readouterr().out)
+    candidate_asset_id = f"candidate_model:home_price_GR1:{payload['run']['run_id']}:cm1"
     assert payload["ok"] is True
     assert payload["run"]["workflow"] == "demo_housing_search_smoke"
     assert payload["run"]["workflow_id"] == "demo_housing_search_smoke"
@@ -105,13 +106,24 @@ def test_cli_demo_search_smoke_parser_path(monkeypatch, isolated_runs_root, caps
         "pilot_smoke": True,
     }
     assert payload["run"]["outputs"]["selected_count"] == 1
-    assert payload["run"]["outputs"]["summary"]["selected_count"] == 1
+    assert payload["run"]["outputs"]["summary"] == {
+        "summary_type": "search_summary",
+        "segment_id": "home_price_GR1",
+        "target": "home_price_GR1",
+        "search_id": payload["run"]["outputs"]["search_id"],
+        "selected_count": 1,
+        "zero_selected_is_valid": True,
+        "pilot_smoke": True,
+        "candidate_count": 1,
+        "best_model_id": "cm1",
+        "best_candidate_model_id": candidate_asset_id,
+    }
     assert payload["run"]["outputs"]["assets"] == [
         {
-            "asset_id": "candidate_model:home_price_GR1:cm1",
+            "asset_id": candidate_asset_id,
             "type": "candidate_model",
             "role": "selected_model",
-            "uri": "asset://candidate_model/home_price_GR1/cm1.json",
+            "uri": f"asset://candidate_model/home_price_GR1/{payload['run']['run_id']}/cm1.json",
         },
         {
             "asset_id": f"evaluation_result:home_price_GR1:{payload['run']['run_id']}",
@@ -123,7 +135,7 @@ def test_cli_demo_search_smoke_parser_path(monkeypatch, isolated_runs_root, caps
     assert payload["run"]["outputs"]["diagnostics"] == {}
     assert all(asset["type"] != "search_pool" for asset in payload["run"]["outputs"]["assets"])
 
-    asset_id = "candidate_model:home_price_GR1:cm1"
+    asset_id = candidate_asset_id
     assert cli.main(["asset", "inspect", asset_id, "--json"]) == 0
     inspect_payload = json.loads(capsys.readouterr().out)
     assert inspect_payload["ok"] is True
@@ -251,7 +263,14 @@ def test_cli_demo_fit_single_does_not_emit_search_config(monkeypatch, isolated_r
         return {
             "segment_id": "home_price_GR1",
             "target": "home_price_GR1",
-            "selected_models": [{"model_id": "cm1"}],
+            "selected_models": [
+                {
+                    "model_id": "cm1",
+                    "formula": "home_price_GR1 ~ USMORT30Y",
+                    "specs": ["USMORT30Y"],
+                    "metrics": {"rsquared": 0.82, "aic": 12.5},
+                }
+            ],
         }
 
     monkeypatch.setattr(cli._demo_housing(), "run_fit_single", fake_run_fit_single)
@@ -259,9 +278,23 @@ def test_cli_demo_fit_single_does_not_emit_search_config(monkeypatch, isolated_r
     assert cli.main(["demo", "fit-single", "--vars", "USMORT30Y", "--json"]) == 0
 
     payload = json.loads(capsys.readouterr().out)
+    candidate_asset_id = f"candidate_model:home_price_GR1:{payload['run']['run_id']}:cm1"
     assert payload["ok"] is True
     assert "search_config" not in payload["run"]["inputs"]
     assert all(asset["type"] != "evaluation_result" for asset in payload["run"]["outputs"]["assets"])
+    assert payload["run"]["outputs"]["summary"] == {
+        "summary_type": "fit_summary",
+        "segment_id": "home_price_GR1",
+        "target": "home_price_GR1",
+        "selected_count": 1,
+        "model_count": 1,
+        "best_model_id": "cm1",
+        "best_candidate_model_id": candidate_asset_id,
+        "best_formula": "home_price_GR1 ~ USMORT30Y",
+        "sample": "in",
+        "specs": ["USMORT30Y"],
+        "metric_highlights": {"rsquared": 0.82, "aic": 12.5},
+    }
 
 
 def test_cli_run_inspect_latest_emits_json(isolated_runs_root, capsys):

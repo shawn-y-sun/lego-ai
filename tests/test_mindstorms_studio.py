@@ -146,6 +146,54 @@ def test_studio_snapshot_summarizes_runs_lineage_and_health(isolated_protocol_ro
     ]
 
 
+def test_studio_snapshot_flags_missing_expected_fit_and_search_assets(isolated_protocol_roots):
+    runs_root, _assets_root = isolated_protocol_roots
+    fit_manifest = runs.base_manifest(
+        run_id="fit_001",
+        workflow="demo_housing_fit_single",
+        segment_id="home_price_GR1",
+        target="home_price_GR1",
+        inputs={"specs": ["USMORT30Y"], "sample": "in"},
+    )
+    fit_manifest["status"] = "succeeded"
+    fit_manifest["completed_at"] = "2026-07-01T14:00:00Z"
+    fit_manifest["outputs"] = {
+        "summary": {
+            "summary_type": "fit_summary",
+            "selected_count": 1,
+        },
+        "assets": [],
+    }
+    runs.write_manifest(fit_manifest)
+
+    search_manifest = runs.base_manifest(
+        run_id="search_001",
+        workflow="demo_housing_search",
+        segment_id="home_price_GR1",
+        target="home_price_GR1",
+        inputs={},
+    )
+    search_manifest["status"] = "succeeded"
+    search_manifest["completed_at"] = "2026-07-01T14:05:00Z"
+    search_manifest["outputs"] = {
+        "summary": {
+            "summary_type": "search_summary",
+            "selected_count": 0,
+            "zero_selected_is_valid": True,
+        },
+        "assets": [],
+    }
+    runs.write_manifest(search_manifest)
+
+    snapshot = studio.build_studio_snapshot()
+
+    finding_codes = {finding["code"] for finding in snapshot["health"]["findings"]}
+    assert finding_codes >= {
+        "EXPECTED_CANDIDATE_MODEL_ASSET_MISSING",
+        "EXPECTED_EVALUATION_RESULT_ASSET_MISSING",
+    }
+
+
 def test_studio_snapshot_records_unparseable_manifests(isolated_protocol_roots):
     runs_root, _assets_root = isolated_protocol_roots
     bad_dir = runs_root / "bad_001"
