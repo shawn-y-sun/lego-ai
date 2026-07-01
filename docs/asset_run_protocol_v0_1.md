@@ -948,41 +948,41 @@ adapter discover context, but should not be copied into stable `artifact_refs`.
 
 ```json
 {
-  "asset_id": "evaluation_result:home_price_GR1:iter_003",
+  "protocol_version": "0.1",
+  "asset_id": "evaluation_result:home_price_GR1:search_20260630_1020",
   "type": "evaluation_result",
-  "modeling_iteration_id": "modeling_iteration:home_price_GR1:iter_003",
+  "created_at": "2026-06-30T10:24:12Z",
+  "created_by_run_id": "search_20260630_1020",
+  "source_asset_ids": [
+    "candidate_model:home_price_GR1:cm17"
+  ],
+  "artifact_refs": [],
+  "source_run_id": "search_20260630_1020",
+  "target": "home_price_GR1",
   "candidate_model_ids": [
     "candidate_model:home_price_GR1:cm17"
   ],
   "best_candidate_model_id": "candidate_model:home_price_GR1:cm17",
   "summary": {
-    "acceptable": false,
-    "reason": "OOS error remains high during the 2024 rate shock period."
+    "status": "needs_review",
+    "selected_count": 1,
+    "zero_selected_is_valid": true,
+    "warning_count": 0
   },
-  "weaknesses": [
-    {
-      "code": "WEAK_OOS_PERFORMANCE",
-      "severity": "high",
-      "evidence": "OOS RMSE is worse than the challenger benchmark."
-    },
-    {
-      "code": "SCENARIO_PATH_UNSTABLE",
-      "severity": "medium",
-      "evidence": "Severe scenario projection reverses direction after month 6."
-    }
-  ],
-  "recommended_next_actions": [
-    {
-      "action": "propose_feature_recipes",
-      "rationale": "Add affordability and labor-market pressure variables."
-    },
-    {
-      "action": "revise_search_pool",
-      "rationale": "Reduce near-duplicate rate spread variables."
-    }
-  ]
+  "weaknesses": [],
+  "recommended_next_actions": []
 }
 ```
+
+The initial Mindstorms implementation writes one EvaluationResult asset for
+successful search workflows. It summarizes the selected candidate count,
+candidate model asset IDs, an obvious best candidate when one exists, whether
+zero selected models is valid, and warning count. If zero candidates are
+selected and `zero_selected_is_valid` is true, `summary.status` is
+`no_candidates_selected`; otherwise the default status is `needs_review`.
+
+Full diagnostic weakness codes, scenario-path analysis, and approval semantics
+remain future work.
 
 ### ApprovalDecision
 
@@ -1097,7 +1097,7 @@ Recommended layout:
         <iteration_id>.json
     evaluation_result/
       <target>/
-        <iteration_id>.json
+        <run_id>.json
     index.json
   recipes/
     global/
@@ -1167,6 +1167,8 @@ Current `.lego/runs/<run_id>/manifest.json` fields map naturally:
 - `outputs.selected_count` becomes `outputs.summary.selected_count`.
 - `outputs.artifacts_dir` can be mapped to stable `technic://` `ArtifactRef`
   URIs; the absolute local path itself should not become the protocol URI.
+- Successful search runs also emit a minimal `EvaluationResult` asset,
+  referenced from `outputs.assets[]` with `role = search_evaluation`.
 - `warnings` keep their current structured shape.
 - `captured_stdout` and `captured_stderr` move under `outputs.diagnostics`.
 

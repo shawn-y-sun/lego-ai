@@ -15,6 +15,7 @@ RUNS_ROOT = Path(".lego") / "runs"
 LATEST_FILE = RUNS_ROOT / "latest"
 _SAFE_ASSET_SEGMENT_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 _LAST_MANIFEST_MTIME_NS = 0
+SEARCH_WORKFLOW_IDS = {"demo_housing_search", "demo_housing_search_smoke"}
 
 
 def utc_timestamp() -> str:
@@ -352,6 +353,97 @@ def write_candidate_model_assets(
 
     normalized["assets"] = existing_refs
     upsert_asset_index_entries(index_entries)
+    return normalized
+
+
+def _evaluation_status(selected_count: int, zero_selected_is_valid: bool) -> str:
+    if selected_count == 0 and zero_selected_is_valid:
+        return "no_candidates_selected"
+    return "needs_review"
+
+
+def write_evaluation_result_asset(
+    manifest: Dict[str, Any],
+    outputs: Dict[str, Any],
+) -> Dict[str, Any]:
+    workflow_id = manifest.get("workflow_id") or manifest.get("workflow")
+    if workflow_id not in SEARCH_WORKFLOW_IDS:
+        return outputs
+
+    normalized = normalize_outputs_for_protocol(outputs)
+    target = normalized.get("target") or manifest.get("target") or "unknown_target"
+    target_segment = _asset_path_segment(target)
+    run_id = manifest["run_id"]
+    run_segment = _asset_path_segment(run_id)
+    created_at = manifest.get("completed_at") or utc_timestamp()
+    asset_id = f"evaluation_result:{target}:{run_id}"
+    asset_ref = AssetRef(
+        asset_id=asset_id,
+        type="evaluation_result",
+        role="search_evaluation",
+        uri=f"asset://evaluation_result/{target_segment}/{run_segment}.json",
+    )
+
+    candidate_model_ids = [
+        asset["asset_id"]
+        for asset in normalized.get("assets", [])
+        if asset.get("type") == "candidate_model" and "asset_id" in asset
+    ]
+    selected_count = normalized.get("selected_count")
+    if selected_count is None:
+        selected_count = len(candidate_model_ids)
+    zero_selected_is_valid = bool(normalized.get("zero_selected_is_valid", False))
+    warnings = manifest.get("warnings") if isinstance(manifest.get("warnings"), list) else []
+    summary = {
+        "status": _evaluation_status(int(selected_count), zero_selected_is_valid),
+        "selected_count": int(selected_count),
+        "zero_selected_is_valid": zero_selected_is_valid,
+        "warning_count": len(warnings),
+    }
+
+    asset_payload = {
+        "protocol_version": PROTOCOL_VERSION,
+        "asset_id": asset_id,
+        "type": "evaluation_result",
+        "created_at": created_at,
+        "created_by_run_id": run_id,
+        "source_asset_ids": candidate_model_ids,
+        "artifact_refs": [],
+        "source_run_id": run_id,
+        "target": target,
+        "candidate_model_ids": candidate_model_ids,
+        "summary": summary,
+        "weaknesses": [],
+        "recommended_next_actions": [],
+    }
+    if candidate_model_ids:
+        asset_payload["best_candidate_model_id"] = candidate_model_ids[0]
+
+    asset_path = asset_ref_to_path(asset_ref, assets_root=ASSETS_ROOT)
+    asset_path.parent.mkdir(parents=True, exist_ok=True)
+    asset_path.write_text(
+        json.dumps(asset_payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    existing_refs = list(normalized.get("assets") or [])
+    asset_ref_payload = asset_ref.to_dict()
+    if asset_ref_payload not in existing_refs:
+        existing_refs.append(asset_ref_payload)
+    normalized["assets"] = existing_refs
+    upsert_asset_index_entries(
+        [
+            {
+                "asset_id": asset_id,
+                "type": "evaluation_result",
+                "uri": asset_ref.uri,
+                "created_at": created_at,
+                "created_by_run_id": run_id,
+                "source_run_id": run_id,
+                "target": target,
+            }
+        ]
+    )
     return normalized
 
 

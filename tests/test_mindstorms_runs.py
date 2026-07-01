@@ -144,6 +144,7 @@ def test_read_manifest_adds_search_config_for_legacy_search_manifest(isolated_ru
         "captured_stderr": "stderr text",
     }
     assert all(asset["type"] != "search_pool" for asset in manifest["outputs"]["assets"])
+    assert not (isolated_runs_root.parent / "assets").exists()
 
 
 def test_normalize_manifest_for_protocol_is_idempotent_for_v0_1_manifest():
@@ -343,6 +344,124 @@ def test_candidate_model_assets_include_stable_search_artifact_refs(isolated_run
     ]
     assert all("C:" not in ref["uri"] for ref in payload["artifact_refs"])
     assert all("\\" not in ref["uri"] for ref in payload["artifact_refs"])
+
+
+def test_evaluation_result_asset_is_written_for_search_outputs(isolated_runs_root):
+    manifest = runs.base_manifest(
+        run_id="search_001",
+        workflow="demo_housing_search",
+        segment_id="home_price_GR1",
+        target="home_price_GR1",
+        inputs={},
+    )
+    manifest["completed_at"] = "2026-06-30T14:23:00Z"
+    manifest["warnings"] = []
+    outputs = runs.write_candidate_model_assets(
+        manifest,
+        runs.normalize_outputs_for_protocol(
+            {
+                "target": "home_price_GR1",
+                "selected_models": [{"model_id": "cm1"}],
+                "selected_count": 1,
+                "zero_selected_is_valid": True,
+            }
+        ),
+    )
+
+    updated = runs.write_evaluation_result_asset(manifest, outputs)
+
+    assert updated["assets"][-1] == {
+        "asset_id": "evaluation_result:home_price_GR1:search_001",
+        "type": "evaluation_result",
+        "role": "search_evaluation",
+        "uri": "asset://evaluation_result/home_price_GR1/search_001.json",
+    }
+    payload = runs.read_asset("evaluation_result:home_price_GR1:search_001")["asset"]
+    assert payload == {
+        "protocol_version": "0.1",
+        "asset_id": "evaluation_result:home_price_GR1:search_001",
+        "type": "evaluation_result",
+        "created_at": "2026-06-30T14:23:00Z",
+        "created_by_run_id": "search_001",
+        "source_asset_ids": ["candidate_model:home_price_GR1:cm1"],
+        "artifact_refs": [],
+        "source_run_id": "search_001",
+        "target": "home_price_GR1",
+        "candidate_model_ids": ["candidate_model:home_price_GR1:cm1"],
+        "best_candidate_model_id": "candidate_model:home_price_GR1:cm1",
+        "summary": {
+            "status": "needs_review",
+            "selected_count": 1,
+            "zero_selected_is_valid": True,
+            "warning_count": 0,
+        },
+        "weaknesses": [],
+        "recommended_next_actions": [],
+    }
+    assert [asset["type"] for asset in runs.read_asset_index()["assets"]] == [
+        "candidate_model",
+        "evaluation_result",
+    ]
+
+
+def test_evaluation_result_asset_represents_zero_selected_search(isolated_runs_root):
+    manifest = runs.base_manifest(
+        run_id="search_002",
+        workflow="demo_housing_search",
+        segment_id="home_price_GR1",
+        target="home_price_GR1",
+        inputs={},
+    )
+    manifest["completed_at"] = "2026-06-30T15:00:00Z"
+    manifest["warnings"] = [{"code": "W", "message": "review this"}]
+    outputs = runs.normalize_outputs_for_protocol(
+        {
+            "target": "home_price_GR1",
+            "selected_models": [],
+            "selected_count": 0,
+            "zero_selected_is_valid": True,
+        }
+    )
+
+    updated = runs.write_evaluation_result_asset(manifest, outputs)
+
+    assert updated["assets"] == [
+        {
+            "asset_id": "evaluation_result:home_price_GR1:search_002",
+            "type": "evaluation_result",
+            "role": "search_evaluation",
+            "uri": "asset://evaluation_result/home_price_GR1/search_002.json",
+        }
+    ]
+    payload = runs.read_asset("evaluation_result:home_price_GR1:search_002")["asset"]
+    assert payload["candidate_model_ids"] == []
+    assert "best_candidate_model_id" not in payload
+    assert payload["summary"] == {
+        "status": "no_candidates_selected",
+        "selected_count": 0,
+        "zero_selected_is_valid": True,
+        "warning_count": 1,
+    }
+
+
+def test_evaluation_result_asset_is_not_written_for_fit_single(isolated_runs_root):
+    manifest = runs.base_manifest(
+        run_id="fit_001",
+        workflow="demo_housing_fit_single",
+        segment_id="home_price_GR1",
+        target="home_price_GR1",
+        inputs={},
+    )
+    outputs = runs.normalize_outputs_for_protocol(
+        {
+            "target": "home_price_GR1",
+            "selected_models": [{"model_id": "cm1"}],
+            "selected_count": 1,
+        }
+    )
+
+    assert runs.write_evaluation_result_asset(manifest, outputs) == outputs
+    assert not (isolated_runs_root.parent / "assets").exists()
 
 
 def test_asset_index_upserts_existing_asset_entries(isolated_runs_root):

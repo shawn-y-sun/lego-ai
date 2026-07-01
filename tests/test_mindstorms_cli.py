@@ -104,6 +104,12 @@ def test_cli_demo_search_smoke_parser_path(monkeypatch, isolated_runs_root, caps
             "type": "candidate_model",
             "role": "selected_model",
             "uri": "asset://candidate_model/home_price_GR1/cm1.json",
+        },
+        {
+            "asset_id": f"evaluation_result:home_price_GR1:{payload['run']['run_id']}",
+            "type": "evaluation_result",
+            "role": "search_evaluation",
+            "uri": f"asset://evaluation_result/home_price_GR1/{payload['run']['run_id']}.json",
         }
     ]
     assert payload["run"]["outputs"]["diagnostics"] == {}
@@ -127,6 +133,26 @@ def test_cli_demo_search_smoke_parser_path(monkeypatch, isolated_runs_root, caps
     ]
     assert all("C:" not in ref["uri"] for ref in inspect_payload["asset"]["artifact_refs"])
     assert all("\\" not in ref["uri"] for ref in inspect_payload["asset"]["artifact_refs"])
+
+    eval_asset_id = f"evaluation_result:home_price_GR1:{payload['run']['run_id']}"
+    assert cli.main(["asset", "inspect", eval_asset_id, "--json"]) == 0
+    eval_payload = json.loads(capsys.readouterr().out)
+    assert eval_payload["ok"] is True
+    assert eval_payload["asset"]["candidate_model_ids"] == [asset_id]
+    assert eval_payload["asset"]["best_candidate_model_id"] == asset_id
+    assert eval_payload["asset"]["summary"] == {
+        "status": "needs_review",
+        "selected_count": 1,
+        "zero_selected_is_valid": True,
+        "warning_count": 0,
+    }
+
+    assert cli.main(["assets", "list", "--json"]) == 0
+    list_payload = json.loads(capsys.readouterr().out)
+    assert [asset["type"] for asset in list_payload["assets"]] == [
+        "candidate_model",
+        "evaluation_result",
+    ]
 
 
 def test_cli_demo_search_parser_maps_legacy_inputs_to_search_config(monkeypatch, isolated_runs_root, capsys):
@@ -189,7 +215,27 @@ def test_cli_demo_search_parser_maps_legacy_inputs_to_search_config(monkeypatch,
         },
         "pilot_smoke": False,
     }
-    assert payload["run"]["outputs"]["assets"] == []
+    assert payload["run"]["outputs"]["assets"] == [
+        {
+            "asset_id": f"evaluation_result:home_price_GR1:{payload['run']['run_id']}",
+            "type": "evaluation_result",
+            "role": "search_evaluation",
+            "uri": f"asset://evaluation_result/home_price_GR1/{payload['run']['run_id']}.json",
+        }
+    ]
+
+    eval_asset_id = f"evaluation_result:home_price_GR1:{payload['run']['run_id']}"
+    assert cli.main(["asset", "inspect", eval_asset_id, "--json"]) == 0
+    eval_payload = json.loads(capsys.readouterr().out)
+    assert eval_payload["ok"] is True
+    assert eval_payload["asset"]["candidate_model_ids"] == []
+    assert "best_candidate_model_id" not in eval_payload["asset"]
+    assert eval_payload["asset"]["summary"] == {
+        "status": "no_candidates_selected",
+        "selected_count": 0,
+        "zero_selected_is_valid": True,
+        "warning_count": 0,
+    }
 
 
 def test_cli_demo_fit_single_does_not_emit_search_config(monkeypatch, isolated_runs_root, capsys):
@@ -207,6 +253,7 @@ def test_cli_demo_fit_single_does_not_emit_search_config(monkeypatch, isolated_r
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
     assert "search_config" not in payload["run"]["inputs"]
+    assert all(asset["type"] != "evaluation_result" for asset in payload["run"]["outputs"]["assets"])
 
 
 def test_cli_run_inspect_latest_emits_json(isolated_runs_root, capsys):
