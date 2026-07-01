@@ -32,6 +32,7 @@ from .runs import (
     write_evaluation_result_asset,
     write_manifest,
 )
+from .studio import build_studio_snapshot, export_studio_html
 from .warnings import summarize_warning_text
 
 
@@ -150,6 +151,18 @@ def command_catalog() -> Dict[str, Any]:
                 "name": "features build",
                 "purpose": "Build deterministic feature outputs from a feature recipe proposal asset.",
                 "example": "lego features build --recipe-id feature_recipe:yield_curve_steepness --source-csv \"Demo Data/macro_monthly.csv\" --date-column observation_date --output-name macro_monthly_enriched --json",
+                "safe_for_pilot": True,
+            },
+            {
+                "name": "studio snapshot",
+                "purpose": "Build the read-only StudioSnapshot JSON interface from local runs and assets.",
+                "example": "lego studio snapshot --json",
+                "safe_for_pilot": True,
+            },
+            {
+                "name": "studio export",
+                "purpose": "Export a static read-only Studio Zero HTML protocol explorer.",
+                "example": "lego studio export --html .lego/studio/index.html",
                 "safe_for_pilot": True,
             },
         ]
@@ -496,6 +509,26 @@ def cmd_features_build(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_studio_snapshot(args: argparse.Namespace) -> int:
+    try:
+        emit_json({"ok": True, "snapshot": build_studio_snapshot()})
+        return 0
+    except Exception as exc:
+        emit_json({"ok": False, "error": {"type": type(exc).__name__, "message": str(exc)}})
+        return 1
+
+
+def cmd_studio_export(args: argparse.Namespace) -> int:
+    try:
+        snapshot = build_studio_snapshot()
+        html_path = export_studio_html(snapshot, Path(args.html))
+        emit_json({"ok": True, "html_path": str(html_path), "health": snapshot.get("health", {})})
+        return 0
+    except Exception as exc:
+        emit_json({"ok": False, "error": {"type": type(exc).__name__, "message": str(exc)}})
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m Mindstorms.cli")
     parser.add_argument("--version", action="version", version=f"Mindstorms {__version__}")
@@ -608,6 +641,16 @@ def build_parser() -> argparse.ArgumentParser:
     build.add_argument("--json", action="store_true", help="Accepted for agent-friendly command symmetry.")
     build.add_argument("--debug", action="store_true")
     build.set_defaults(func=cmd_features_build)
+
+    studio = sub.add_parser("studio", help="Build Studio Zero read-only protocol views.")
+    studio_sub = studio.add_subparsers(dest="studio_command", required=True)
+    snapshot = studio_sub.add_parser("snapshot", help="Emit the StudioSnapshot JSON interface.")
+    snapshot.add_argument("--json", action="store_true", help="Accepted for agent-friendly command symmetry.")
+    snapshot.set_defaults(func=cmd_studio_snapshot)
+
+    export = studio_sub.add_parser("export", help="Export static Studio Zero HTML.")
+    export.add_argument("--html", required=True, help="Output HTML path.")
+    export.set_defaults(func=cmd_studio_export)
 
     return parser
 
