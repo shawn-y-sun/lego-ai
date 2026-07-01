@@ -646,22 +646,42 @@ materializing data.
 
 ```json
 {
-  "asset_id": "recipe_proposal:yield_curve_steepness:001",
+  "protocol_version": "0.1",
+  "asset_id": "feature_recipe_proposal:yield_curve_steepness",
   "type": "feature_recipe_proposal",
+  "created_at": "2026-06-30T14:23:00Z",
+  "created_by_run_id": "recipe_proposal_20260630_142300",
+  "source_asset_ids": [],
+  "artifact_refs": [],
+  "source_run_id": "recipe_proposal_20260630_142300",
   "status": "proposed",
+  "scope": "project",
   "request": "Create variables that capture yield curve steepness.",
   "available_columns": ["USGOV10Y", "USGOV2Y", "USGOV3M"],
   "proposed_recipes": [
     {
       "name": "USYC10_2",
+      "recipe_kind": "arithmetic",
       "expression": "USGOV10Y - USGOV2Y",
       "expression_language": "lego_formula_v0",
       "source_columns": ["USGOV10Y", "USGOV2Y"],
+      "category": "yield_slope",
       "rationale": "Classic 10Y-2Y slope."
     }
   ]
 }
 ```
+
+The initial Mindstorms implementation creates deterministic proposal assets
+from explicit CLI arguments:
+
+```text
+lego recipe propose --request "Create yield slope" --name USYC10_2 --expression "USGOV10Y - USGOV2Y" --source-columns USGOV10Y USGOV2Y --category yield_slope --scope project --json
+```
+
+The command writes a `propose_feature_recipes` run manifest and one
+`feature_recipe_proposal` asset. It does not call an LLM, materialize features,
+create a `FeatureSet`, or create a `DerivedDatasetSnapshot`.
 
 Recommended proposal lifecycle:
 

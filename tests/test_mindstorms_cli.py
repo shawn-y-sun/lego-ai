@@ -53,6 +53,8 @@ def test_cli_help_json_catalog_highlights_pilot_path(capsys):
     assert commands["demo fit-single"]["safe_for_pilot"] is True
     assert commands["demo search-smoke"]["safe_for_pilot"] is True
     assert commands["demo search"]["safe_for_pilot"] is False
+    assert commands["recipe propose"]["safe_for_pilot"] is True
+    assert "feature recipe proposal" in commands["recipe propose"]["purpose"]
 
 
 def test_cli_demo_search_smoke_parser_path(monkeypatch, isolated_runs_root, capsys):
@@ -313,3 +315,98 @@ def test_cli_assets_list_and_asset_inspect_emit_json(isolated_runs_root, capsys)
     assert inspect_payload["ok"] is True
     assert inspect_payload["asset"]["asset_id"] == "candidate_model:home_price_GR1:cm1"
     assert inspect_payload["asset_ref"] == asset_ref
+
+
+def test_cli_recipe_propose_writes_manifest_asset_and_index(isolated_runs_root, capsys):
+    assert (
+        cli.main(
+            [
+                "recipe",
+                "propose",
+                "--request",
+                "Create variables that capture yield curve steepness.",
+                "--name",
+                "USYC10_2",
+                "--expression",
+                "USGOV10Y - USGOV2Y",
+                "--source-columns",
+                "USGOV10Y",
+                "USGOV2Y",
+                "--available-columns",
+                "USGOV10Y",
+                "USGOV2Y",
+                "USGOV3M",
+                "--category",
+                "yield_slope",
+                "--scope",
+                "project",
+                "--rationale",
+                "Classic 10Y-2Y slope.",
+                "--slug",
+                "yield_curve_steepness",
+                "--json",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    proposal_id = "feature_recipe_proposal:yield_curve_steepness"
+    assert payload["ok"] is True
+    assert payload["run"]["workflow"] == "propose_feature_recipes"
+    assert payload["run"]["workflow_id"] == "propose_feature_recipes"
+    assert payload["run"]["inputs"]["request"] == "Create variables that capture yield curve steepness."
+    assert payload["run"]["inputs"]["scope"] == "project"
+    assert payload["run"]["inputs"]["available_columns"] == ["USGOV10Y", "USGOV2Y", "USGOV3M"]
+    assert payload["run"]["outputs"]["assets"] == [
+        {
+            "asset_id": proposal_id,
+            "type": "feature_recipe_proposal",
+            "role": "feature_recipe_proposal",
+            "uri": "asset://feature_recipe_proposal/yield_curve_steepness.json",
+        }
+    ]
+    assert payload["run"]["outputs"]["summary"] == {
+        "status": "proposed",
+        "scope": "project",
+        "proposal_asset_id": proposal_id,
+        "proposed_recipe_count": 1,
+    }
+
+    assert cli.main(["asset", "inspect", proposal_id, "--json"]) == 0
+    inspect_payload = json.loads(capsys.readouterr().out)
+    asset_payload = inspect_payload["asset"]
+    assert inspect_payload["ok"] is True
+    assert asset_payload["asset_id"] == proposal_id
+    assert asset_payload["type"] == "feature_recipe_proposal"
+    assert asset_payload["source_run_id"] == payload["run"]["run_id"]
+    assert asset_payload["status"] == "proposed"
+    assert asset_payload["scope"] == "project"
+    assert asset_payload["request"] == "Create variables that capture yield curve steepness."
+    assert asset_payload["available_columns"] == ["USGOV10Y", "USGOV2Y", "USGOV3M"]
+    assert asset_payload["proposed_recipes"] == [
+        {
+            "name": "USYC10_2",
+            "recipe_kind": "arithmetic",
+            "expression": "USGOV10Y - USGOV2Y",
+            "expression_language": "lego_formula_v0",
+            "source_columns": ["USGOV10Y", "USGOV2Y"],
+            "category": "yield_slope",
+            "rationale": "Classic 10Y-2Y slope.",
+        }
+    ]
+
+    assert cli.main(["assets", "list", "--type", "feature_recipe_proposal", "--json"]) == 0
+    list_payload = json.loads(capsys.readouterr().out)
+    assert list_payload["assets"] == [
+        {
+            "asset_id": proposal_id,
+            "type": "feature_recipe_proposal",
+            "uri": "asset://feature_recipe_proposal/yield_curve_steepness.json",
+            "created_at": payload["run"]["completed_at"],
+            "created_by_run_id": payload["run"]["run_id"],
+            "source_run_id": payload["run"]["run_id"],
+            "scope": "project",
+            "status": "proposed",
+        }
+    ]

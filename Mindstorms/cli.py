@@ -9,6 +9,11 @@ from typing import Any, Callable, Dict, Optional, Sequence
 
 from . import __version__
 from .assets import list_assets, read_asset
+from .recipes import (
+    build_proposed_recipe,
+    recipe_proposal_slug,
+    write_feature_recipe_proposal_asset,
+)
 from .runs import (
     base_manifest,
     fail_manifest,
@@ -121,6 +126,12 @@ def command_catalog() -> Dict[str, Any]:
                 "name": "asset inspect",
                 "purpose": "Inspect one protocol asset by asset ID.",
                 "example": "lego asset inspect candidate_model:home_price_GR1:cm1 --json",
+                "safe_for_pilot": True,
+            },
+            {
+                "name": "recipe propose",
+                "purpose": "Create a deterministic feature recipe proposal asset from explicit inputs.",
+                "example": 'lego recipe propose --request "Create yield slope" --name USYC10_2 --expression "USGOV10Y - USGOV2Y" --source-columns USGOV10Y USGOV2Y --json',
                 "safe_for_pilot": True,
             },
         ]
@@ -324,6 +335,60 @@ def cmd_asset_inspect(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_recipe_propose(args: argparse.Namespace) -> int:
+    run_id = new_run_id("recipe_proposal")
+    available_columns = list(args.available_columns or args.source_columns)
+    proposed_recipe = build_proposed_recipe(
+        name=args.name,
+        expression=args.expression,
+        source_columns=list(args.source_columns),
+        category=args.category,
+        rationale=args.rationale,
+        recipe_kind=args.recipe_kind,
+        expression_language=args.expression_language,
+    )
+    slug = args.slug or recipe_proposal_slug(args.name)
+    inputs = {
+        "request": args.request,
+        "scope": args.scope,
+        "available_columns": available_columns,
+        "proposed_recipes": [proposed_recipe],
+    }
+    manifest = base_manifest(
+        run_id=run_id,
+        workflow="propose_feature_recipes",
+        segment_id="feature_recipes",
+        target="feature_recipes",
+        inputs=inputs,
+    )
+    try:
+        from .runs import utc_timestamp
+
+        manifest["status"] = "succeeded"
+        manifest["warnings"] = []
+        manifest["errors"] = []
+        manifest["completed_at"] = utc_timestamp()
+        manifest["outputs"] = write_feature_recipe_proposal_asset(
+            manifest,
+            {"assets": []},
+            request=args.request,
+            scope=args.scope,
+            available_columns=available_columns,
+            proposed_recipes=[proposed_recipe],
+            slug=slug,
+        )
+        path = write_manifest(manifest)
+        emit_json({"ok": True, "manifest_path": str(path), "run": manifest})
+        return 0
+    except Exception as exc:
+        manifest = fail_manifest(manifest, exc)
+        if getattr(args, "debug", False):
+            manifest["traceback"] = traceback.format_exc()
+        path = write_manifest(manifest)
+        emit_json({"ok": False, "manifest_path": str(path), "run": manifest})
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m Mindstorms.cli")
     parser.add_argument("--version", action="version", version=f"Mindstorms {__version__}")
@@ -396,6 +461,24 @@ def build_parser() -> argparse.ArgumentParser:
     asset_inspect.add_argument("asset_id")
     asset_inspect.add_argument("--json", action="store_true", help="Accepted for agent-friendly command symmetry.")
     asset_inspect.set_defaults(func=cmd_asset_inspect)
+
+    recipe = sub.add_parser("recipe", help="Create and inspect feature recipe protocol assets.")
+    recipe_sub = recipe.add_subparsers(dest="recipe_command", required=True)
+    propose = recipe_sub.add_parser("propose", help="Create a deterministic feature recipe proposal.")
+    propose.add_argument("--request", required=True)
+    propose.add_argument("--name", required=True)
+    propose.add_argument("--expression", required=True)
+    propose.add_argument("--source-columns", nargs="+", required=True)
+    propose.add_argument("--available-columns", nargs="+")
+    propose.add_argument("--category", required=True)
+    propose.add_argument("--scope", choices=["project", "domain", "global"], default="project")
+    propose.add_argument("--recipe-kind", default="arithmetic")
+    propose.add_argument("--expression-language", default="lego_formula_v0")
+    propose.add_argument("--rationale")
+    propose.add_argument("--slug")
+    propose.add_argument("--json", action="store_true", help="Accepted for agent-friendly command symmetry.")
+    propose.add_argument("--debug", action="store_true")
+    propose.set_defaults(func=cmd_recipe_propose)
 
     return parser
 
